@@ -77,6 +77,14 @@ function dr_campaign_builder_init() {
             error_log('DR_CB Bootstrap: ERROR - Scoring system file not found: ' . $scoring_system_file);
         }
         
+        // Load Journey Circle Creator
+        $journey_circle_file = $plugin_dir . '../journey-circle/journey-circle.php';
+        if (file_exists($journey_circle_file)) {
+            require_once $journey_circle_file;
+        } else {
+            error_log('DR_CB Bootstrap: WARNING - Journey Circle file not found: ' . $journey_circle_file);
+        }
+
         // Initialize AI Settings admin interface
         dr_ai_settings_admin_init();
     }

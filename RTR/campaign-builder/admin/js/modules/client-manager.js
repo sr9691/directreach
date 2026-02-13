@@ -138,6 +138,19 @@ export default class ClientManager extends EventEmitter {
                     return;
                 }
 
+                // Check if journey circle button was clicked
+                const journeyCircleBtn = e.target.closest('.journey-circle-btn');
+                if (journeyCircleBtn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const card = journeyCircleBtn.closest('.client-card');
+                    if (card) {
+                        const clientId = parseInt(card.dataset.clientId);
+                        this.handleJourneyCircleClick(clientId);
+                    }
+                    return;
+                }
+                
                 // Otherwise handle card selection
                 const card = e.target.closest('.client-card');
                 if (card) {
@@ -246,6 +259,13 @@ export default class ClientManager extends EventEmitter {
                                 aria-label="Configure client settings">
                             <i class="fas fa-cog"></i>
                         </button>
+                        // Journey Circle Creator button
+                        <button type="button" 
+                                class="badge badge-info journey-circle-btn" 
+                                title="Journey Circle Creator" 
+                                aria-label="Open Journey Circle Creator">
+                            <i class="fas fa-circle-notch"></i>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -333,6 +353,29 @@ export default class ClientManager extends EventEmitter {
             button.classList.remove('running');
         }
     }    
+
+    handleJourneyCircleClick(clientId) {
+        const client = this.clients.find(c => c.id === clientId);
+        
+        if (!client) {
+            console.error('Client not found:', clientId);
+            return;
+        }
+
+        // Store client info in sessionStorage for Journey Circle to use
+        sessionStorage.setItem('dr_journey_client', JSON.stringify({
+            clientId: clientId,
+            clientName: client.name,
+            accountId: client.accountId
+        }));
+
+        // Emit event before navigation
+        this.emit('client:journey_circle', { clientId, client });
+
+        // Navigate to Journey Circle Creator page
+        window.location.href = `admin.php?page=dr-journey-circle&client_id=${clientId}`;
+    }
+
     
     /**
      * Select a client
