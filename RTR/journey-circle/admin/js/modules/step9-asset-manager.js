@@ -55,6 +55,7 @@
                 this.assets = this._migrate(state.contentAssets || {});
             }
             $(document).on('jc:stepChanged', function(e, step) { if (step === 9) self.initStep9(); });
+            $(document).on('jc:colorSchemeChanged', function() { var g=document.getElementById('jc-asset-grid'); if(g && g.style.display!=='none') self._renderGrid(g); });
             if (state && state.currentStep === 9) this.initStep9();
             console.log('Step9Manager v3 (outline-first) ready');
         }
@@ -103,7 +104,8 @@
             if (this.currentItem && panel) { grid.style.display='none'; panel.style.display='block'; return; }
             grid.style.display=''; if(panel) panel.style.display='none';
             var pT=this._cntFocus(FP),sT=this._cntFocus(FS),gT=pT+sT,mx=this.selectedProblems.length*CT_LIST.length*2,self=this;
-            var h='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:14px 18px;margin-bottom:16px;background:#fff;border-radius:10px;border:1px solid #e2e5eb;box-shadow:0 1px 3px rgba(0,0,0,.06)"><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap"><span style="font-size:15px;font-weight:700;color:#1a1d26">Content Assets</span><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:100px;background:#fef2f2;color:#dc4545"><i class="fas fa-exclamation-circle"></i> '+pT+' Problem</span><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:100px;background:#eff6ff;color:#3b82f6"><i class="fas fa-lightbulb"></i> '+sT+' Solution</span><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:100px;background:'+(gT>0?'#f0fdf4':'#f3f4f8')+';color:'+(gT>0?'#16a34a':'#8c91a0')+'"><i class="fas fa-'+(gT>0?'check-circle':'tasks')+'"></i> '+gT+' of '+mx+' created</span></div></div>';
+            var csBtn = (window.JCColorSchemeSelector) ? window.JCColorSchemeSelector.buildTriggerHtml() : '';
+            var h='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:14px 18px;margin-bottom:16px;background:#fff;border-radius:10px;border:1px solid #e2e5eb;box-shadow:0 1px 3px rgba(0,0,0,.06)"><div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap"><span style="font-size:15px;font-weight:700;color:#1a1d26">Content Assets</span><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:100px;background:#fef2f2;color:#dc4545"><i class="fas fa-exclamation-circle"></i> '+pT+' Problem</span><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:100px;background:#eff6ff;color:#3b82f6"><i class="fas fa-lightbulb"></i> '+sT+' Solution</span><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:100px;background:'+(gT>0?'#f0fdf4':'#f3f4f8')+';color:'+(gT>0?'#16a34a':'#8c91a0')+'"><i class="fas fa-'+(gT>0?'check-circle':'tasks')+'"></i> '+gT+' of '+mx+' created</span></div>'+csBtn+'</div>';
             this.selectedProblems.forEach(function(p,i){ h+=self._cardHtml(p,i); });
             grid.innerHTML=h;
             this._bindGrid(grid);
@@ -287,25 +289,22 @@
         _fmtOutline(outline) {
             if(!outline) return '<p style="color:#aaa">No outline generated.</p>';
 
-            // Try to parse as JSON — with cleanup for common Gemini quirks
-            var parsed=null;
-            try {
-                var jsonStr=typeof outline==='string'?outline:JSON.stringify(outline);
-                // Clean trailing commas before ] or } (common Gemini issue)
-                jsonStr=jsonStr.replace(/,\s*([\]\}])/g,'$1');
-                // Strip markdown code fences if present
-                jsonStr=jsonStr.replace(/^```(?:json)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
-                parsed=JSON.parse(jsonStr);
-            } catch(e){
-                // Also try parsing the original untouched value
-                try { parsed=typeof outline==='object'?outline:null; } catch(e2){}
-            }
+            // If already an object/array (not a string), render directly
+            if(typeof outline==='object' && outline!==null) return this._renderOutlineObj(outline);
 
-            // If it's a JSON object/array, render as structured bullets
+            var raw=String(outline).trim();
+
+            // Strip markdown code fences
+            raw=raw.replace(/^```(?:json)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
+
+            // Attempt to parse — try multiple strategies
+            var parsed=this._tryParseJson(raw);
+
+            // If it's a JSON object/array, render structured
             if(parsed && typeof parsed==='object') return this._renderOutlineObj(parsed);
 
             // Plain text fallback — parse markdown-style headings and bullets
-            var lines=String(outline).split('\n'),html='';
+            var lines=raw.split('\n'),html='';
             lines.forEach(function(line){
                 var t=line.trim();
                 if(!t){html+='<br>';return;}
@@ -345,11 +344,140 @@
         }
 
         /**
+         * Robust JSON parser — handles double-encoding, trailing commas,
+         * and truncated Gemini responses (missing closing brackets).
+         */
+        _tryParseJson(str) {
+            if(!str) return null;
+
+            // Strategy 1: direct parse (handles well-formed JSON)
+            var cleaned=str.replace(/,\s*([\]\}])/g,'$1');
+            try {
+                var p=JSON.parse(cleaned);
+                // Handle double-encoded: first parse returned a string
+                if(typeof p==='string') try { p=JSON.parse(p); } catch(e){}
+                if(typeof p==='object'&&p!==null) return p;
+            } catch(e){}
+
+            // Strategy 2: repair truncated JSON (Gemini cut off mid-response)
+            // Only attempt if it looks like JSON (starts with [ or {)
+            if(/^\[/.test(cleaned)||/^\{/.test(cleaned)) {
+                var repaired=this._repairJson(cleaned);
+                if(repaired) {
+                    try {
+                        var p2=JSON.parse(repaired);
+                        if(typeof p2==='string') try { p2=JSON.parse(p2); } catch(e){}
+                        if(typeof p2==='object'&&p2!==null) return p2;
+                    } catch(e){}
+                }
+            }
+
+            // Strategy 3: if it's a double-encoded string that itself failed,
+            // try unescaping manually
+            if(str.charAt(0)==='"') {
+                try {
+                    var unquoted=JSON.parse(str); // removes outer quotes + unescapes
+                    if(typeof unquoted==='string') return this._tryParseJson(unquoted);
+                } catch(e){}
+            }
+
+            return null;
+        }
+
+        /**
+         * Attempt to repair truncated JSON by closing open brackets/braces/strings.
+         * Handles the common Gemini issue of cutting off mid-array or mid-object.
+         */
+        _repairJson(str) {
+            // Remove any trailing incomplete key-value (e.g. ,"speaker_notes": "some text that got cut)
+            // Find the last complete value: look for last }, ] or complete "string"
+            var s=str;
+            // If inside an unclosed string, close it
+            var inString=false, lastGoodPos=0, depth={'{':0,'[':0};
+            for(var i=0;i<s.length;i++){
+                var c=s[i];
+                if(inString){
+                    if(c==='\\'){ i++; continue; } // skip escaped char
+                    if(c==='"') inString=false;
+                    continue;
+                }
+                if(c==='"') { inString=true; continue; }
+                if(c==='{') depth['{']++;
+                else if(c==='}') { depth['{']--; lastGoodPos=i; }
+                else if(c==='[') depth['[']++;
+                else if(c===']') { depth['[']--; lastGoodPos=i; }
+                else if(c===','||c===':') lastGoodPos=i;
+            }
+
+            // If we're inside an unclosed string, truncate to before that string value started
+            // Find the last complete object in the array
+            if(inString || depth['{']>0 || depth['{']<0 || depth['[']!==0) {
+                // Approach: find last '}' that isn't inside a string, trim after it, then close brackets
+                var result='';
+                var inStr2=false, braces=0, brackets=0, lastCloseBrace=-1, lastCloseBracket=-1;
+                for(var j=0;j<s.length;j++){
+                    var ch=s[j];
+                    if(inStr2){
+                        if(ch==='\\'){ j++; continue; }
+                        if(ch==='"') inStr2=false;
+                        continue;
+                    }
+                    if(ch==='"') { inStr2=true; continue; }
+                    if(ch==='{') braces++;
+                    else if(ch==='}') { braces--; if(braces===0) lastCloseBrace=j; }
+                    else if(ch==='[') brackets++;
+                    else if(ch===']') { brackets--; lastCloseBracket=j; }
+                }
+
+                // Trim to last complete top-level object (for arrays of slide objects)
+                if(lastCloseBrace>0 && s.charAt(0)==='[') {
+                    result=s.substring(0,lastCloseBrace+1);
+                    // Remove any trailing comma
+                    result=result.replace(/,\s*$/,'');
+                    // Close the outer array
+                    result+=']';
+                    return result;
+                }
+                // For top-level objects
+                if(lastCloseBracket>0 && s.charAt(0)==='{') {
+                    result=s.substring(0,lastCloseBracket+1);
+                    result=result.replace(/,\s*$/,'');
+                    result+='}';
+                    return result;
+                }
+            }
+
+            // Simple bracket closing if counts are just off
+            var result2=s;
+            // Count open/close
+            var ob=0,cb=0,os=0,cs=0;
+            inString=false;
+            for(var k=0;k<result2.length;k++){
+                var cc=result2[k];
+                if(inString){if(cc==='\\'){ k++; continue; } if(cc==='"') inString=false; continue;}
+                if(cc==='"') { inString=true; continue; }
+                if(cc==='{') ob++; else if(cc==='}') cb++;
+                if(cc==='[') os++; else if(cc===']') cs++;
+            }
+            if(inString) result2+='"';
+            while(cb<ob) { result2+='}'; cb++; }
+            while(cs<os) { result2+=']'; cs++; }
+            return result2;
+        }
+
+        /**
          * Render a JSON outline object as a structured bulleted list.
          * Handles all known formats: article/blog (sections), presentation (slides), linkedin, infographic.
          */
         _renderOutlineObj(obj) {
             var h='';
+
+            // ---- Unwrap {slides:[...]} wrapper (common Gemini presentation response) ----
+            if(!Array.isArray(obj) && obj.slides && Array.isArray(obj.slides)) {
+                // Presentation wrapped in {slides: [...], title?: "...", ...}
+                if(obj.title) h+='<div style="font-weight:700;font-size:16px;color:#1e293b;margin-bottom:12px">'+esc(obj.title)+'</div>';
+                return h + this._renderSlides(obj.slides);
+            }
 
             // ---- Array: could be presentation slides OR an unwrapped sections array ----
             if(Array.isArray(obj)) {
@@ -357,18 +485,7 @@
                 var looksLikeSlides=obj.length>0 && obj.some(function(item){ return item.slide_title || item.slide_number || item.speaker_notes; });
 
                 if(looksLikeSlides) {
-                    // Presentation slides
-                    obj.forEach(function(slide,i){
-                        var title=slide.slide_title||slide.title||('Slide '+(i+1));
-                        h+='<div style="margin-bottom:14px">';
-                        h+='<div style="font-weight:700;font-size:14px;color:#333;margin-bottom:4px">'+(slide.slide_number||(i+1))+'. '+esc(title)+'</div>';
-                        if(slide.section) h+='<div style="padding-left:20px;font-size:12px;color:#888;margin-bottom:4px"><em>'+esc(slide.section)+'</em></div>';
-                        var pts=slide.key_points||slide.bullet_points||slide.points||[];
-                        if(pts.length) pts.forEach(function(pt){ h+='<div style="padding-left:20px;margin:3px 0"><span style="color:#42A5F5;margin-right:8px">\u2022</span>'+esc(typeof pt==='string'?pt:(pt.text||pt.point||JSON.stringify(pt)))+'</div>'; });
-                        if(slide.speaker_notes) h+='<div style="padding-left:20px;font-size:12px;color:#999;margin-top:4px"><i class="fas fa-comment-dots" style="margin-right:4px"></i>'+esc(slide.speaker_notes)+'</div>';
-                        h+='</div>';
-                    });
-                    return h;
+                    return this._renderSlides(obj);
                 }
 
                 // Otherwise treat as unwrapped sections array (article/blog/infographic returned without wrapper)
@@ -425,6 +542,62 @@
                 });
             }
 
+            return h;
+        }
+
+        /**
+         * Render an array of presentation slide objects as visual card-style outline.
+         * Each slide shows its number, section badge, title, bullet points, and speaker notes.
+         */
+        _renderSlides(slides) {
+            if(!slides||!slides.length) return '<p style="color:#aaa">No slides in outline.</p>';
+            var sectionColors={
+                'title slide':'#42A5F5','problem definition':'#EF5350','problem amplification':'#EF5350',
+                'solution overview':'#66BB6A','solution details':'#66BB6A','benefits summary':'#42A5F5',
+                'credibility':'#AB47BC','call to action':'#FF7043'
+            };
+            var h='<div style="display:flex;flex-direction:column;gap:12px">';
+            for(var i=0;i<slides.length;i++){
+                var slide=slides[i];
+                var title=slide.slide_title||slide.title||('Slide '+(i+1));
+                var num=slide.slide_number||(i+1);
+                var section=slide.section||'';
+                var secLower=section.toLowerCase();
+                var secColor=sectionColors[secLower]||'#42A5F5';
+                // Find partial match if exact fails
+                if(!sectionColors[secLower]){
+                    if(secLower.indexOf('problem')!==-1) secColor='#EF5350';
+                    else if(secLower.indexOf('solution')!==-1) secColor='#66BB6A';
+                    else if(secLower.indexOf('benefit')!==-1) secColor='#42A5F5';
+                    else if(secLower.indexOf('action')!==-1||secLower.indexOf('cta')!==-1) secColor='#FF7043';
+                    else if(secLower.indexOf('credib')!==-1) secColor='#AB47BC';
+                }
+                h+='<div style="background:#fff;border:1px solid #eee;border-radius:8px;border-left:4px solid '+secColor+';padding:12px 16px">';
+                h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
+                h+='<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:'+secColor+';color:#fff;font-size:11px;font-weight:700;flex-shrink:0">'+num+'</span>';
+                if(section) h+='<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:100px;background:'+secColor+'15;color:'+secColor+';border:1px solid '+secColor+'30;text-transform:uppercase;letter-spacing:.5px">'+esc(section)+'</span>';
+                h+='</div>';
+                h+='<div style="font-weight:600;font-size:14px;color:#1e293b;margin-bottom:6px">'+esc(title)+'</div>';
+                var pts=slide.key_points||slide.bullet_points||slide.points||[];
+                if(pts.length){
+                    for(var p=0;p<pts.length;p++){
+                        var pt=typeof pts[p]==='string'?pts[p]:(pts[p].text||pts[p].point||JSON.stringify(pts[p]));
+                        h+='<div style="display:flex;align-items:flex-start;gap:8px;padding-left:4px;margin:3px 0;font-size:13px;color:#555;line-height:1.4"><span style="color:'+secColor+';margin-top:2px;flex-shrink:0;font-size:7px"><i class="fas fa-circle"></i></span><span>'+esc(pt)+'</span></div>';
+                    }
+                }
+                if(slide.data_points&&slide.data_points.length){
+                    h+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">';
+                    for(var d=0;d<slide.data_points.length;d++){
+                        h+='<span style="font-size:10px;padding:2px 8px;border-radius:100px;background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0"><i class="fas fa-chart-bar" style="margin-right:3px;color:'+secColor+'"></i>'+esc(slide.data_points[d])+'</span>';
+                    }
+                    h+='</div>';
+                }
+                if(slide.speaker_notes){
+                    h+='<div style="margin-top:8px;padding:8px 10px;background:#f8f9fa;border-radius:5px;border:1px solid #eef0f4;font-size:11px;color:#888;line-height:1.4"><i class="fas fa-comment-dots" style="margin-right:4px;color:#bbb"></i>'+esc(slide.speaker_notes)+'</div>';
+                }
+                h+='</div>';
+            }
+            h+='</div>';
             return h;
         }
 

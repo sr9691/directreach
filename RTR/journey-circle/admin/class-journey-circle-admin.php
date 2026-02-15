@@ -250,6 +250,7 @@ class Journey_Circle_Admin {
             '-steps78'    => 'journey-circle-steps78.css',
             '-canvas'     => 'journey-circle-canvas.css',
             '-ai'         => 'journey-circle-ai.css',
+            '-color-scheme' => 'color-scheme-selector.css',
             '-asset'      => 'journey-circle-asset.css',
             '-completion' => 'journey-completion.css',
         );
@@ -345,6 +346,15 @@ class Journey_Circle_Admin {
             $this->version,
             true
         );
+
+        // Color Scheme Selector (must load before Step 9)
+        wp_enqueue_script(
+            $this->plugin_name . '-color-scheme',
+            JOURNEY_CIRCLE_PLUGIN_URL . 'admin/js/modules/color-scheme-selector.js',
+            array( 'jquery', $this->plugin_name . '-workflow' ),
+            $this->version,
+            true
+        );        
 
         // Step 9 - Asset Manager
         wp_enqueue_script(

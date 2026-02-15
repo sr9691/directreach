@@ -1,0 +1,675 @@
+/**
+ * Color Scheme Selector - Modal & Theme Picker Styles
+ *
+ * Standalone stylesheet for the color scheme selection modal used
+ * in Step 9 of the Journey Circle Creator. Provides theme presets
+ * and custom color editing for Presentation and Infographic formats.
+ *
+ * @package DirectReach_Campaign_Builder
+ * @subpackage Journey_Circle
+ * @since 2.2.0
+ */
+
+/* ===================================================================
+   MODAL BACKDROP & CONTAINER
+   =================================================================== */
+
+.jc-cs-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    pointer-events: none;
+}
+
+.jc-cs-backdrop.is-open {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.jc-cs-modal {
+    width: 640px;
+    max-width: 94vw;
+    max-height: 88vh;
+    background: #ffffff;
+    border-radius: 14px;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.04);
+    display: flex;
+    flex-direction: column;
+    transform: translateY(12px) scale(0.97);
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow: hidden;
+}
+
+.jc-cs-backdrop.is-open .jc-cs-modal {
+    transform: translateY(0) scale(1);
+}
+
+
+/* ===================================================================
+   MODAL HEADER
+   =================================================================== */
+
+.jc-cs-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 24px;
+    border-bottom: 1px solid #eef0f4;
+    flex-shrink: 0;
+}
+
+.jc-cs-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.jc-cs-header-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    color: #fff;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    flex-shrink: 0;
+}
+
+.jc-cs-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #1e293b;
+    line-height: 1.2;
+}
+
+.jc-cs-header h3 span {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: #94a3b8;
+    margin-top: 2px;
+}
+
+.jc-cs-close-btn {
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 8px;
+    background: #f1f5f9;
+    color: #64748b;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+
+.jc-cs-close-btn:hover {
+    background: #e2e8f0;
+    color: #334155;
+}
+
+
+/* ===================================================================
+   SCROLLABLE BODY
+   =================================================================== */
+
+.jc-cs-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 20px 24px 24px;
+    overscroll-behavior: contain;
+}
+
+.jc-cs-body::-webkit-scrollbar {
+    width: 5px;
+}
+
+.jc-cs-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.jc-cs-body::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+}
+
+
+/* ===================================================================
+   SECTION LABELS
+   =================================================================== */
+
+.jc-cs-section-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #94a3b8;
+    margin: 0 0 12px;
+}
+
+
+/* ===================================================================
+   PRESET GRID
+   =================================================================== */
+
+.jc-cs-presets {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 22px;
+}
+
+.jc-cs-preset {
+    position: relative;
+    border: 2px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #fff;
+}
+
+.jc-cs-preset:hover {
+    border-color: #94a3b8;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.jc-cs-preset.is-selected {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.jc-cs-preset.is-selected::after {
+    content: '\f00c';
+    font-family: 'Font Awesome 5 Free';
+    font-weight: 900;
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #6366f1;
+    color: #fff;
+    font-size: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Mini preview inside preset card */
+.jc-cs-preset-preview {
+    height: 48px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Color swatches row inside preview */
+.jc-cs-swatch-row {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+}
+
+.jc-cs-swatch-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+}
+
+.jc-cs-preset-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #334155;
+    text-align: center;
+    line-height: 1.2;
+}
+
+.jc-cs-preset-desc {
+    font-size: 10px;
+    color: #94a3b8;
+    text-align: center;
+    margin-top: 2px;
+    line-height: 1.25;
+}
+
+
+/* ===================================================================
+   CUSTOM COLORS PANEL
+   =================================================================== */
+
+.jc-cs-custom-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-bottom: 14px;
+    user-select: none;
+}
+
+.jc-cs-custom-toggle:hover {
+    background: #f1f5f9;
+}
+
+.jc-cs-custom-toggle .toggle-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #475569;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.jc-cs-custom-toggle .toggle-chevron {
+    font-size: 11px;
+    color: #94a3b8;
+    transition: transform 0.2s;
+}
+
+.jc-cs-custom-toggle.is-expanded .toggle-chevron {
+    transform: rotate(180deg);
+}
+
+.jc-cs-custom-panel {
+    display: none;
+    padding: 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fafbfc;
+    margin-bottom: 16px;
+}
+
+.jc-cs-custom-panel.is-visible {
+    display: block;
+}
+
+.jc-cs-color-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 20px;
+}
+
+.jc-cs-color-field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.jc-cs-color-field label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    flex: 1;
+    white-space: nowrap;
+}
+
+.jc-cs-color-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.jc-cs-color-input-wrap input[type="color"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 32px;
+    height: 28px;
+    border: 2px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 2px;
+    cursor: pointer;
+    background: transparent;
+}
+
+.jc-cs-color-input-wrap input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+.jc-cs-color-input-wrap input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 3px;
+}
+
+.jc-cs-color-input-wrap input[type="text"] {
+    width: 72px;
+    height: 28px;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    padding: 0 6px;
+    font-size: 11px;
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    color: #475569;
+    text-transform: uppercase;
+}
+
+.jc-cs-color-input-wrap input[type="text"]:focus {
+    outline: none;
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+}
+
+/* Chart colors row */
+.jc-cs-chart-colors-label {
+    grid-column: 1 / -1;
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    margin-top: 6px;
+    padding-top: 10px;
+    border-top: 1px solid #e9ecf1;
+}
+
+.jc-cs-chart-row {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.jc-cs-chart-swatch {
+    position: relative;
+}
+
+.jc-cs-chart-swatch input[type="color"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 30px;
+    height: 30px;
+    border: 2px solid #e2e8f0;
+    border-radius: 50%;
+    padding: 3px;
+    cursor: pointer;
+    background: transparent;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.jc-cs-chart-swatch input[type="color"]:hover {
+    border-color: #94a3b8;
+}
+
+.jc-cs-chart-swatch input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+.jc-cs-chart-swatch input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 50%;
+}
+
+
+/* ===================================================================
+   LIVE PREVIEW
+   =================================================================== */
+
+.jc-cs-preview-wrap {
+    margin-top: 4px;
+}
+
+.jc-cs-live-preview {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e2e8f0;
+}
+
+/* Presentation mini preview */
+.jc-cs-pres-preview {
+    aspect-ratio: 16 / 7;
+    display: flex;
+    flex-direction: column;
+    padding: 18px 22px;
+    position: relative;
+}
+
+.jc-cs-pres-preview .pres-topbar {
+    height: 3px;
+    border-radius: 2px;
+    margin-bottom: 14px;
+}
+
+.jc-cs-pres-preview .pres-title {
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: 10px;
+}
+
+.jc-cs-pres-preview .pres-bullets {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    flex: 1;
+}
+
+.jc-cs-pres-preview .pres-bullet {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    line-height: 1.3;
+}
+
+.jc-cs-pres-preview .pres-bullet-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.jc-cs-pres-preview .pres-chart-area {
+    position: absolute;
+    right: 20px;
+    bottom: 16px;
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+.jc-cs-pres-preview .pres-bar {
+    width: 16px;
+    border-radius: 3px 3px 0 0;
+}
+
+/* Infographic mini preview */
+.jc-cs-info-preview {
+    display: flex;
+    flex-direction: column;
+}
+
+.jc-cs-info-header {
+    padding: 14px 20px;
+    text-align: center;
+}
+
+.jc-cs-info-header .info-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+}
+
+.jc-cs-info-header .info-subtitle {
+    font-size: 10px;
+    margin-top: 2px;
+    opacity: 0.7;
+}
+
+.jc-cs-info-sections {
+    display: flex;
+    flex-direction: column;
+}
+
+.jc-cs-info-section {
+    padding: 10px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-left: 3px solid transparent;
+}
+
+.jc-cs-info-section .info-sec-heading {
+    font-size: 11px;
+    font-weight: 600;
+    color: #334155;
+    flex: 1;
+}
+
+.jc-cs-info-section .info-sec-chip {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 100px;
+}
+
+.jc-cs-info-footer {
+    padding: 10px 18px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+}
+
+
+/* ===================================================================
+   MODAL FOOTER
+   =================================================================== */
+
+.jc-cs-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+    border-top: 1px solid #eef0f4;
+    flex-shrink: 0;
+    background: #fafbfc;
+}
+
+.jc-cs-footer-hint {
+    font-size: 11px;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.jc-cs-footer-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.jc-cs-btn {
+    padding: 8px 18px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.jc-cs-btn-secondary {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.jc-cs-btn-secondary:hover {
+    background: #e2e8f0;
+}
+
+.jc-cs-btn-primary {
+    background: #6366f1;
+    color: #fff;
+}
+
+.jc-cs-btn-primary:hover {
+    background: #4f46e5;
+}
+
+
+/* ===================================================================
+   TRIGGER BUTTON (sits inside Step 9 card)
+   =================================================================== */
+
+.jc-cs-trigger-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #fff;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.jc-cs-trigger-btn:hover {
+    border-color: #6366f1;
+    color: #6366f1;
+    background: #f5f3ff;
+}
+
+.jc-cs-trigger-btn .cs-swatch-mini {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+}
+
+.jc-cs-trigger-btn .cs-swatch-mini span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+
+/* ===================================================================
+   RESPONSIVE
+   =================================================================== */
+
+@media (max-width: 660px) {
+    .jc-cs-presets {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .jc-cs-color-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .jc-cs-modal {
+        max-height: 92vh;
+        border-radius: 10px;
+    }
+}

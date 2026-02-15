@@ -21,9 +21,9 @@
     'use strict';
 
     // =========================================================================
-    // SLIDE THEME (used by both preview and pptx export)
+    // SLIDE THEME (default fallback — used when Color Scheme Selector absent)
     // =========================================================================
-    var SLIDE_THEME = {
+    var SLIDE_THEME_DEFAULT = {
         bg: '#0F2B46',           // dark navy
         titleBg: '#1A3A5C',
         accentColor: '#42A5F5',  // bright blue
@@ -32,6 +32,10 @@
         subtextColor: '#B0BEC5',
         bulletColor: '#42A5F5',
         chartColors: ['#42A5F5', '#66BB6A', '#EF5350', '#FF7043', '#AB47BC', '#FFA726', '#26C6DA', '#EC407A'],
+        headerGradientFrom: '#1a237e',
+        headerGradientTo: '#283593',
+        headerSubtitle: '#90caf9',
+        footerBg: '#263238',
         sectionColors: {
             'Title Slide':        { accent: '#42A5F5', icon: 'fas fa-play-circle' },
             'Problem Definition': { accent: '#EF5350', icon: 'fas fa-exclamation-triangle' },
@@ -43,6 +47,25 @@
             'Call to Action':     { accent: '#FF7043', icon: 'fas fa-bullhorn' }
         }
     };
+
+    /**
+     * Dynamic theme getter — returns the user-selected color scheme if the
+     * Color Scheme Selector module is loaded, otherwise falls back to defaults.
+     * Called as _T() throughout this module instead of the old SLIDE_THEME constant.
+     */
+    function _T() {
+        if (window.JCColorSchemeSelector) {
+            return window.JCColorSchemeSelector.getActiveTheme();
+        }
+        return SLIDE_THEME_DEFAULT;
+    }
+
+    /** Strip '#' from hex color for PptxGenJS (requires bare hex). */
+    function _H(key) {
+        var t = _T();
+        var val = t[key] || SLIDE_THEME_DEFAULT[key] || '000000';
+        return val.replace('#', '');
+    }
 
     // =========================================================================
     // CONTENT RENDERER
@@ -280,21 +303,21 @@
         },
 
         _getSectionTheme: function(section) {
-            if (!section) return { accent: SLIDE_THEME.accentColor, icon: 'fas fa-file' };
-            var keys = Object.keys(SLIDE_THEME.sectionColors);
+            if (!section) return { accent: _T().accentColor, icon: 'fas fa-file' };
+            var keys = Object.keys(_T().sectionColors);
             for (var i = 0; i < keys.length; i++) {
                 if (section.indexOf(keys[i]) !== -1 || keys[i].indexOf(section) !== -1) {
-                    return SLIDE_THEME.sectionColors[keys[i]];
+                    return _T().sectionColors[keys[i]];
                 }
             }
             // Check partial match
             var sectionLower = section.toLowerCase();
-            if (sectionLower.indexOf('problem') !== -1) return SLIDE_THEME.sectionColors['Problem Definition'];
-            if (sectionLower.indexOf('solution') !== -1) return SLIDE_THEME.sectionColors['Solution Overview'];
-            if (sectionLower.indexOf('benefit') !== -1) return SLIDE_THEME.sectionColors['Benefits Summary'];
-            if (sectionLower.indexOf('action') !== -1 || sectionLower.indexOf('next') !== -1) return SLIDE_THEME.sectionColors['Call to Action'];
-            if (sectionLower.indexOf('credib') !== -1 || sectionLower.indexOf('expert') !== -1) return SLIDE_THEME.sectionColors['Credibility'];
-            return { accent: SLIDE_THEME.accentColor, icon: 'fas fa-file-powerpoint' };
+            if (sectionLower.indexOf('problem') !== -1) return _T().sectionColors['Problem Definition'];
+            if (sectionLower.indexOf('solution') !== -1) return _T().sectionColors['Solution Overview'];
+            if (sectionLower.indexOf('benefit') !== -1) return _T().sectionColors['Benefits Summary'];
+            if (sectionLower.indexOf('action') !== -1 || sectionLower.indexOf('next') !== -1) return _T().sectionColors['Call to Action'];
+            if (sectionLower.indexOf('credib') !== -1 || sectionLower.indexOf('expert') !== -1) return _T().sectionColors['Credibility'];
+            return { accent: _T().accentColor, icon: 'fas fa-file-powerpoint' };
         },
 
         _renderPresentationPreview: function(content, container) {
@@ -311,7 +334,7 @@
             // Slide navigator
             html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;overflow-x:auto">';
             for (var n = 0; n < slides.length; n++) {
-                html += '<button type="button" class="jc-slide-nav" data-slide="' + n + '" style="min-width:36px;height:28px;border-radius:4px;border:1.5px solid ' + (n === 0 ? SLIDE_THEME.accentColor : '#ddd') + ';background:' + (n === 0 ? SLIDE_THEME.accentColor : '#fff') + ';color:' + (n === 0 ? '#fff' : '#666') + ';font-size:11px;font-weight:600;cursor:pointer;transition:all .15s">' + (n + 1) + '</button>';
+                html += '<button type="button" class="jc-slide-nav" data-slide="' + n + '" style="min-width:36px;height:28px;border-radius:4px;border:1.5px solid ' + (n === 0 ? _T().accentColor : '#ddd') + ';background:' + (n === 0 ? _T().accentColor : '#fff') + ';color:' + (n === 0 ? '#fff' : '#666') + ';font-size:11px;font-weight:600;cursor:pointer;transition:all .15s">' + (n + 1) + '</button>';
             }
             html += '</div>';
 
@@ -323,9 +346,9 @@
                 var hasVisual = slide.visual_element && slide.visual_element.type && slide.visual_element.data;
 
                 html += '<div class="jc-slide-panel" data-slide="' + s + '" style="display:' + (s === 0 ? 'block' : 'none') + '">';
-                html += '<div class="jc-slide-card" style="position:relative;background:' + SLIDE_THEME.bg + ';border-radius:8px;padding:0;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.3);aspect-ratio:16/9;display:flex;flex-direction:column">';
+                html += '<div class="jc-slide-card" style="position:relative;background:' + _T().bg + ';border-radius:8px;padding:0;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.3);aspect-ratio:16/9;display:flex;flex-direction:column">';
                 html += '<div style="height:4px;background:linear-gradient(90deg,' + theme.accent + ',' + theme.accent + '88)"></div>';
-                html += '<div style="position:absolute;top:12px;right:14px;font-size:10px;font-weight:600;color:' + SLIDE_THEME.subtextColor + ';opacity:.6">' + (slide.slide_number || (s + 1)) + ' / ' + slides.length + '</div>';
+                html += '<div style="position:absolute;top:12px;right:14px;font-size:10px;font-weight:600;color:' + _T().subtextColor + ';opacity:.6">' + (slide.slide_number || (s + 1)) + ' / ' + slides.length + '</div>';
 
                 if (hasVisual && !isTitle) {
                     // TWO-COLUMN layout: left text + right visual
@@ -339,7 +362,7 @@
                     if (slide.key_points && slide.key_points.length > 0) {
                         html += '<div style="display:flex;flex-direction:column;gap:6px">';
                         for (var k = 0; k < slide.key_points.length; k++) {
-                            html += '<div style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:' + SLIDE_THEME.subtextColor + ';line-height:1.5"><span style="color:' + theme.accent + ';font-size:6px;margin-top:5px;flex-shrink:0"><i class="fas fa-circle"></i></span><span>' + this._esc(slide.key_points[k]) + '</span></div>';
+                            html += '<div style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:' + _T().subtextColor + ';line-height:1.5"><span style="color:' + theme.accent + ';font-size:6px;margin-top:5px;flex-shrink:0"><i class="fas fa-circle"></i></span><span>' + this._esc(slide.key_points[k]) + '</span></div>';
                         }
                         html += '</div>';
                     }
@@ -359,16 +382,16 @@
                     if (slide.key_points && slide.key_points.length > 0 && !isTitle) {
                         html += '<div style="flex:1;display:flex;flex-direction:column;gap:8px">';
                         for (var k2 = 0; k2 < slide.key_points.length; k2++) {
-                            html += '<div style="display:flex;align-items:flex-start;gap:10px;font-size:13px;color:' + SLIDE_THEME.subtextColor + ';line-height:1.5"><span style="color:' + theme.accent + ';font-size:7px;margin-top:6px;flex-shrink:0"><i class="fas fa-circle"></i></span><span>' + this._esc(slide.key_points[k2]) + '</span></div>';
+                            html += '<div style="display:flex;align-items:flex-start;gap:10px;font-size:13px;color:' + _T().subtextColor + ';line-height:1.5"><span style="color:' + theme.accent + ';font-size:7px;margin-top:6px;flex-shrink:0"><i class="fas fa-circle"></i></span><span>' + this._esc(slide.key_points[k2]) + '</span></div>';
                         }
                         html += '</div>';
                     } else if (isTitle && slide.key_points && slide.key_points.length > 0) {
-                        html += '<div style="font-size:14px;color:' + SLIDE_THEME.subtextColor + ';line-height:1.6;max-width:80%">' + this._esc(slide.key_points.join(' ')) + '</div>';
+                        html += '<div style="font-size:14px;color:' + _T().subtextColor + ';line-height:1.6;max-width:80%">' + this._esc(slide.key_points.join(' ')) + '</div>';
                     }
                     if (slide.data_points && slide.data_points.length > 0) {
                         html += '<div style="margin-top:auto;padding-top:12px;border-top:1px solid rgba(255,255,255,.1);display:flex;flex-wrap:wrap;gap:6px">';
                         for (var d = 0; d < slide.data_points.length; d++) {
-                            html += '<span style="font-size:10px;padding:3px 8px;border-radius:100px;background:rgba(255,255,255,.08);color:' + SLIDE_THEME.subtextColor + ';border:1px solid rgba(255,255,255,.1)"><i class="fas fa-chart-bar" style="margin-right:3px;color:' + theme.accent + '"></i>' + this._esc(slide.data_points[d]) + '</span>';
+                            html += '<span style="font-size:10px;padding:3px 8px;border-radius:100px;background:rgba(255,255,255,.08);color:' + _T().subtextColor + ';border:1px solid rgba(255,255,255,.1)"><i class="fas fa-chart-bar" style="margin-right:3px;color:' + theme.accent + '"></i>' + this._esc(slide.data_points[d]) + '</span>';
                         }
                         html += '</div>';
                     }
@@ -401,9 +424,9 @@
                     var idx = parseInt(btn.dataset.slide);
                     container.querySelectorAll('.jc-slide-nav').forEach(function(b) {
                         var active = parseInt(b.dataset.slide) === idx;
-                        b.style.background = active ? SLIDE_THEME.accentColor : '#fff';
+                        b.style.background = active ? _T().accentColor : '#fff';
                         b.style.color = active ? '#fff' : '#666';
-                        b.style.borderColor = active ? SLIDE_THEME.accentColor : '#ddd';
+                        b.style.borderColor = active ? _T().accentColor : '#ddd';
                     });
                     container.querySelectorAll('.jc-slide-panel').forEach(function(p) {
                         p.style.display = parseInt(p.dataset.slide) === idx ? 'block' : 'none';
@@ -436,22 +459,22 @@
 
             switch (ve.type) {
                 case 'bar_chart':
-                    html += '<canvas class="jc-ve-canvas" data-ve-type="bar_chart" data-ve=\'' + this._safeJsonAttr(ve.data) + '\' data-accent="' + (accentColor || SLIDE_THEME.accentColor) + '" width="320" height="200" style="width:100%;max-width:320px;height:auto"></canvas>';
-                    if (d.title) html += '<div style="text-align:center;font-size:10px;color:' + SLIDE_THEME.subtextColor + ';margin-top:6px;opacity:.7">' + this._esc(d.title) + '</div>';
+                    html += '<canvas class="jc-ve-canvas" data-ve-type="bar_chart" data-ve=\'' + this._safeJsonAttr(ve.data) + '\' data-accent="' + (accentColor || _T().accentColor) + '" width="320" height="200" style="width:100%;max-width:320px;height:auto"></canvas>';
+                    if (d.title) html += '<div style="text-align:center;font-size:10px;color:' + _T().subtextColor + ';margin-top:6px;opacity:.7">' + this._esc(d.title) + '</div>';
                     break;
 
                 case 'donut_chart':
-                    html += '<canvas class="jc-ve-canvas" data-ve-type="donut_chart" data-ve=\'' + this._safeJsonAttr(ve.data) + '\' data-accent="' + (accentColor || SLIDE_THEME.accentColor) + '" width="220" height="220" style="width:100%;max-width:220px;height:auto"></canvas>';
+                    html += '<canvas class="jc-ve-canvas" data-ve-type="donut_chart" data-ve=\'' + this._safeJsonAttr(ve.data) + '\' data-accent="' + (accentColor || _T().accentColor) + '" width="220" height="220" style="width:100%;max-width:220px;height:auto"></canvas>';
                     break;
 
                 case 'stat_cards':
                     var stats = d.stats || [];
                     html += '<div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">';
                     for (var i = 0; i < stats.length; i++) {
-                        var c = SLIDE_THEME.chartColors[i % SLIDE_THEME.chartColors.length];
+                        var c = _T().chartColors[i % _T().chartColors.length];
                         html += '<div style="text-align:center;padding:10px 14px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);min-width:70px">'
                             + '<div style="font-size:20px;font-weight:800;color:' + c + ';line-height:1.2">' + this._esc(stats[i].value) + '</div>'
-                            + '<div style="font-size:9px;color:' + SLIDE_THEME.subtextColor + ';margin-top:3px;text-transform:uppercase;letter-spacing:.5px">' + this._esc(stats[i].label) + '</div></div>';
+                            + '<div style="font-size:9px;color:' + _T().subtextColor + ';margin-top:3px;text-transform:uppercase;letter-spacing:.5px">' + this._esc(stats[i].label) + '</div></div>';
                     }
                     html += '</div>';
                     break;
@@ -463,13 +486,13 @@
                     html += '<div style="flex:1;padding:10px;border-radius:8px;background:rgba(239,83,80,.1);border:1px solid rgba(239,83,80,.25)">';
                     html += '<div style="font-size:10px;font-weight:700;color:#EF5350;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">' + this._esc(bef.title) + '</div>';
                     for (var b = 0; b < (bef.points || []).length; b++) {
-                        html += '<div style="font-size:10px;color:' + SLIDE_THEME.subtextColor + ';margin-bottom:4px;display:flex;gap:5px"><span style="color:#EF5350">&#10007;</span> ' + this._esc(bef.points[b]) + '</div>';
+                        html += '<div style="font-size:10px;color:' + _T().subtextColor + ';margin-bottom:4px;display:flex;gap:5px"><span style="color:#EF5350">&#10007;</span> ' + this._esc(bef.points[b]) + '</div>';
                     }
                     html += '</div>';
                     html += '<div style="flex:1;padding:10px;border-radius:8px;background:rgba(102,187,106,.1);border:1px solid rgba(102,187,106,.25)">';
                     html += '<div style="font-size:10px;font-weight:700;color:#66BB6A;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">' + this._esc(aft.title) + '</div>';
                     for (var a = 0; a < (aft.points || []).length; a++) {
-                        html += '<div style="font-size:10px;color:' + SLIDE_THEME.subtextColor + ';margin-bottom:4px;display:flex;gap:5px"><span style="color:#66BB6A">&#10003;</span> ' + this._esc(aft.points[a]) + '</div>';
+                        html += '<div style="font-size:10px;color:' + _T().subtextColor + ';margin-bottom:4px;display:flex;gap:5px"><span style="color:#66BB6A">&#10003;</span> ' + this._esc(aft.points[a]) + '</div>';
                     }
                     html += '</div></div>';
                     break;
@@ -478,7 +501,7 @@
                     var steps = d.steps || [];
                     html += '<div style="display:flex;flex-direction:column;gap:0;width:100%">';
                     for (var t = 0; t < steps.length; t++) {
-                        var tc = SLIDE_THEME.chartColors[t % SLIDE_THEME.chartColors.length];
+                        var tc = _T().chartColors[t % _T().chartColors.length];
                         var isLast = (t === steps.length - 1);
                         html += '<div style="display:flex;gap:10px;align-items:flex-start">';
                         html += '<div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;width:16px">'
@@ -487,7 +510,7 @@
                         html += '<div style="padding-bottom:' + (isLast ? '0' : '12px') + '">'
                             + '<div style="font-size:8px;font-weight:700;color:' + tc + ';text-transform:uppercase;letter-spacing:1px">' + this._esc(steps[t].phase) + '</div>'
                             + '<div style="font-size:11px;font-weight:600;color:#fff;margin-top:2px">' + this._esc(steps[t].title) + '</div>'
-                            + (steps[t].description ? '<div style="font-size:9px;color:' + SLIDE_THEME.subtextColor + ';margin-top:2px">' + this._esc(steps[t].description) + '</div>' : '')
+                            + (steps[t].description ? '<div style="font-size:9px;color:' + _T().subtextColor + ';margin-top:2px">' + this._esc(steps[t].description) + '</div>' : '')
                             + '</div></div>';
                     }
                     html += '</div>';
@@ -498,16 +521,16 @@
                     var pSuffix = d.value_suffix || '%';
                     html += '<div style="display:flex;flex-direction:column;gap:10px;width:100%">';
                     for (var p = 0; p < bars.length; p++) {
-                        var pc = SLIDE_THEME.chartColors[p % SLIDE_THEME.chartColors.length];
+                        var pc = _T().chartColors[p % _T().chartColors.length];
                         var pct = Math.min(100, Math.max(0, bars[p].value || 0));
-                        html += '<div><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:' + SLIDE_THEME.subtextColor + '">' + this._esc(bars[p].label) + '</span><span style="font-size:10px;font-weight:700;color:' + pc + '">' + pct + pSuffix + '</span></div>'
+                        html += '<div><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:' + _T().subtextColor + '">' + this._esc(bars[p].label) + '</span><span style="font-size:10px;font-weight:700;color:' + pc + '">' + pct + pSuffix + '</span></div>'
                             + '<div style="height:8px;border-radius:4px;background:rgba(255,255,255,.1);overflow:hidden"><div style="height:100%;width:' + pct + '%;border-radius:4px;background:linear-gradient(90deg,' + pc + ',' + pc + 'cc)"></div></div></div>';
                     }
                     html += '</div>';
                     break;
 
                 default:
-                    html += '<div style="font-size:10px;color:' + SLIDE_THEME.subtextColor + ';text-align:center;opacity:.5">Unknown visual: ' + this._esc(ve.type) + '</div>';
+                    html += '<div style="font-size:10px;color:' + _T().subtextColor + ';text-align:center;opacity:.5">Unknown visual: ' + this._esc(ve.type) + '</div>';
             }
             return html;
         },
@@ -517,7 +540,7 @@
             container.querySelectorAll('canvas.jc-ve-canvas').forEach(function(cvs) {
                 var type = cvs.getAttribute('data-ve-type');
                 var dataStr = cvs.getAttribute('data-ve');
-                var accent = cvs.getAttribute('data-accent') || SLIDE_THEME.accentColor;
+                var accent = cvs.getAttribute('data-accent') || _T().accentColor;
                 var data;
                 try { data = JSON.parse(dataStr); } catch(e) { return; }
 
@@ -552,7 +575,7 @@
             for (var i = 0; i < n; i++) {
                 var y = startY + i * gapY;
                 var barW = (values[i] / maxVal) * barAreaW;
-                var color = SLIDE_THEME.chartColors[i % SLIDE_THEME.chartColors.length];
+                var color = _T().chartColors[i % _T().chartColors.length];
 
                 ctx.fillStyle = '#B0BEC5';
                 ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
@@ -593,7 +616,7 @@
             for (var j = 0; j < segments.length; j++) {
                 var seg = segments[j];
                 var sweep = (seg.value / total) * Math.PI * 2;
-                var color = SLIDE_THEME.chartColors[j % SLIDE_THEME.chartColors.length];
+                var color = _T().chartColors[j % _T().chartColors.length];
 
                 ctx.beginPath();
                 ctx.arc(cx, cy, outerR, startAngle, startAngle + sweep);
@@ -653,9 +676,9 @@
 
             pptx.defineSlideMaster({
                 title: 'JC_MASTER',
-                background: { color: SLIDE_THEME.bg.replace('#', '') },
+                background: { color: _T().bg.replace('#', '') },
                 objects: [
-                    { rect: { x: 0, y: 0, w: '100%', h: 0.04, fill: { color: SLIDE_THEME.accentColor.replace('#', '') } } }
+                    { rect: { x: 0, y: 0, w: '100%', h: 0.04, fill: { color: _T().accentColor.replace('#', '') } } }
                 ]
             });
 
@@ -668,18 +691,18 @@
 
                 slide.addText((sd.slide_number || (s + 1)) + ' / ' + slides.length, {
                     x: 8.5, y: 0.15, w: 1.3, h: 0.3,
-                    fontSize: 8, color: 'B0BEC5', align: 'right'
+                    fontSize: 8, color: _H('subtextColor'), align: 'right'
                 });
 
                 if (isTitle) {
                     slide.addText(sd.slide_title || 'Untitled', {
                         x: 0.8, y: 1.5, w: 8.4, h: 1.5,
-                        fontSize: 28, bold: true, color: 'FFFFFF', align: 'left', valign: 'middle'
+                        fontSize: 28, bold: true, color: _H('textColor'), align: 'left', valign: 'middle'
                     });
                     if (sd.key_points && sd.key_points.length > 0) {
                         slide.addText(sd.key_points.join('\n'), {
                             x: 0.8, y: 3.0, w: 7.0, h: 1.5,
-                            fontSize: 14, color: 'B0BEC5', lineSpacing: 22
+                            fontSize: 14, color: _H('subtextColor'), lineSpacing: 22
                         });
                     }
                 } else if (hasVisual) {
@@ -694,18 +717,18 @@
                     }
                     slide.addText(sd.slide_title || '', {
                         x: 0.8, y: 0.8, w: textW, h: 0.7,
-                        fontSize: 20, bold: true, color: 'FFFFFF'
+                        fontSize: 20, bold: true, color: _H('textColor')
                     });
                     if (sd.key_points && sd.key_points.length > 0) {
                         var visBullets = sd.key_points.map(function(kp) {
-                            return { text: kp, options: { fontSize: 12, color: 'B0BEC5', bullet: { type: 'bullet', color: theme.accent.replace('#', '') }, lineSpacing: 18, paraSpaceAfter: 4 } };
+                            return { text: kp, options: { fontSize: 12, color: _H('subtextColor'), bullet: { type: 'bullet', color: theme.accent.replace('#', '') }, lineSpacing: 18, paraSpaceAfter: 4 } };
                         });
                         slide.addText(visBullets, { x: 0.8, y: 1.6, w: textW, h: 3.0, valign: 'top' });
                     }
                     this._addPptxVisual(pptx, slide, sd.visual_element, vizX, 0.8, vizW, 4.0, theme);
                     if (sd.data_points && sd.data_points.length > 0) {
                         slide.addText(sd.data_points.map(function(dp) { return '• ' + dp; }).join('   '), {
-                            x: 0.8, y: 4.8, w: 8.4, h: 0.4, fontSize: 9, color: '78909C', italic: true
+                            x: 0.8, y: 4.8, w: 8.4, h: 0.4, fontSize: 9, color: _H('subtextColor'), italic: true
                         });
                     }
                 } else {
@@ -718,17 +741,17 @@
                     }
                     slide.addText(sd.slide_title || '', {
                         x: 0.8, y: 0.8, w: 8.4, h: 0.8,
-                        fontSize: 22, bold: true, color: 'FFFFFF'
+                        fontSize: 22, bold: true, color: _H('textColor')
                     });
                     if (sd.key_points && sd.key_points.length > 0) {
                         var stdBullets = sd.key_points.map(function(kp) {
-                            return { text: kp, options: { fontSize: 13, color: 'B0BEC5', bullet: { type: 'bullet', color: theme.accent.replace('#', '') }, lineSpacing: 20, paraSpaceAfter: 6 } };
+                            return { text: kp, options: { fontSize: 13, color: _H('subtextColor'), bullet: { type: 'bullet', color: theme.accent.replace('#', '') }, lineSpacing: 20, paraSpaceAfter: 6 } };
                         });
                         slide.addText(stdBullets, { x: 0.8, y: 1.8, w: 8.4, h: 2.8, valign: 'top' });
                     }
                     if (sd.data_points && sd.data_points.length > 0) {
                         slide.addText(sd.data_points.map(function(dp) { return '• ' + dp; }).join('   '), {
-                            x: 0.8, y: 4.8, w: 8.4, h: 0.4, fontSize: 9, color: '78909C', italic: true
+                            x: 0.8, y: 4.8, w: 8.4, h: 0.4, fontSize: 9, color: _H('subtextColor'), italic: true
                         });
                     }
                 }
@@ -746,7 +769,7 @@
         _addPptxVisual: function(pptx, slide, ve, x, y, w, h, theme) {
             if (!ve || !ve.type || !ve.data) return;
             var d = ve.data;
-            var colors = SLIDE_THEME.chartColors;
+            var colors = _T().chartColors;
 
             switch (ve.type) {
                 case 'bar_chart':
@@ -755,12 +778,12 @@
                         var barColors = (d.labels || []).map(function(_, i) { return colors[i % colors.length].replace('#', ''); });
                         slide.addChart(pptx.charts.BAR, chartData, {
                             x: x, y: y + 0.4, w: w, h: h - 0.6, barDir: 'bar', barGrouping: 'clustered',
-                            showValue: true, valueFontSize: 9, valueFontColor: 'FFFFFF',
-                            catAxisLabelColor: 'B0BEC5', catAxisLabelFontSize: 9, valAxisHidden: true,
-                            catGridLine: { style: 'none' }, valGridLine: { color: '1A3A5C', style: 'dash', size: 1 },
-                            plotArea: { fill: { color: '0F2B46' } }, chartColors: barColors
+                            showValue: true, valueFontSize: 9, valueFontColor: _H('textColor'),
+                            catAxisLabelColor: _H('subtextColor'), catAxisLabelFontSize: 9, valAxisHidden: true,
+                            catGridLine: { style: 'none' }, valGridLine: { color: _H('titleBg'), style: 'dash', size: 1 },
+                            plotArea: { fill: { color: _H('bg') } }, chartColors: barColors
                         });
-                        if (d.title) slide.addText(d.title, { x: x, y: y, w: w, h: 0.35, fontSize: 10, bold: true, color: 'B0BEC5', align: 'center' });
+                        if (d.title) slide.addText(d.title, { x: x, y: y, w: w, h: 0.35, fontSize: 10, bold: true, color: _H('subtextColor'), align: 'center' });
                     } catch(e) { this._addPptxVisualFallback(slide, d, x, y, w, h); }
                     break;
 
@@ -771,13 +794,13 @@
                         var pieColors = segs.map(function(_, i) { return colors[i % colors.length].replace('#', ''); });
                         slide.addChart(pptx.charts.DOUGHNUT, pieData, {
                             x: x + 0.3, y: y + 0.4, w: w - 0.6, h: h - 0.8, holeSize: 55,
-                            showLegend: true, legendPos: 'b', legendFontSize: 8, legendColor: 'B0BEC5',
+                            showLegend: true, legendPos: 'b', legendFontSize: 8, legendColor: _H('subtextColor'),
                             showTitle: false, chartColors: pieColors
                         });
                         if (d.center_value) {
                             slide.addText(d.center_value + (d.center_label ? '\n' + d.center_label : ''), {
                                 x: x + 0.3, y: y + 0.4, w: w - 0.6, h: h - 1.2,
-                                fontSize: 14, bold: true, color: 'FFFFFF', align: 'center', valign: 'middle'
+                                fontSize: 14, bold: true, color: _H('textColor'), align: 'center', valign: 'middle'
                             });
                         }
                     } catch(e) { this._addPptxVisualFallback(slide, d, x, y, w, h); }
@@ -791,9 +814,9 @@
                     for (var i = 0; i < stats.length; i++) {
                         var cx = x + i * (cardW + 0.2);
                         var sc = colors[i % colors.length].replace('#', '');
-                        slide.addShape(pptx.shapes.ROUNDED_RECTANGLE, { x: cx, y: cardY, w: cardW, h: cardH, fill: { color: '1A3A5C' }, line: { color: '2A4A6C', width: 1 }, rectRadius: 0.1 });
+                        slide.addShape(pptx.shapes.ROUNDED_RECTANGLE, { x: cx, y: cardY, w: cardW, h: cardH, fill: { color: _H('titleBg') }, line: { color: _H('titleBg'), width: 1 }, rectRadius: 0.1 });
                         slide.addText(stats[i].value || '', { x: cx, y: cardY + 0.15, w: cardW, h: 0.7, fontSize: 22, bold: true, color: sc, align: 'center', valign: 'middle' });
-                        slide.addText((stats[i].label || '').toUpperCase(), { x: cx, y: cardY + 0.85, w: cardW, h: 0.4, fontSize: 8, color: 'B0BEC5', align: 'center', valign: 'top', letterSpacing: 1 });
+                        slide.addText((stats[i].label || '').toUpperCase(), { x: cx, y: cardY + 0.85, w: cardW, h: 0.4, fontSize: 8, color: _H('subtextColor'), align: 'center', valign: 'top', letterSpacing: 1 });
                     }
                     break;
 
@@ -803,18 +826,18 @@
                     var colW = (w - 0.3) / 2;
                     var colH = h - 0.4;
                     // Before
-                    slide.addShape(pptx.shapes.ROUNDED_RECTANGLE, { x: x, y: y + 0.2, w: colW, h: colH, fill: { color: '1A2A3C' }, line: { color: 'EF5350', width: 1 }, rectRadius: 0.08 });
+                    slide.addShape(pptx.shapes.ROUNDED_RECTANGLE, { x: x, y: y + 0.2, w: colW, h: colH, fill: { color: _H('titleBg') }, line: { color: 'EF5350', width: 1 }, rectRadius: 0.08 });
                     slide.addText(bef.title.toUpperCase(), { x: x + 0.15, y: y + 0.3, w: colW - 0.3, h: 0.3, fontSize: 9, bold: true, color: 'EF5350', letterSpacing: 2 });
                     if ((bef.points || []).length > 0) {
-                        var bBullets = bef.points.map(function(p) { return { text: p, options: { fontSize: 10, color: 'B0BEC5', bullet: { code: '2717', color: 'EF5350' }, lineSpacing: 16, paraSpaceAfter: 3 } }; });
+                        var bBullets = bef.points.map(function(p) { return { text: p, options: { fontSize: 10, color: _H('subtextColor'), bullet: { code: '2717', color: 'EF5350' }, lineSpacing: 16, paraSpaceAfter: 3 } }; });
                         slide.addText(bBullets, { x: x + 0.15, y: y + 0.7, w: colW - 0.3, h: colH - 0.7, valign: 'top' });
                     }
                     // After
                     var afterX = x + colW + 0.3;
-                    slide.addShape(pptx.shapes.ROUNDED_RECTANGLE, { x: afterX, y: y + 0.2, w: colW, h: colH, fill: { color: '1A2A3C' }, line: { color: '66BB6A', width: 1 }, rectRadius: 0.08 });
+                    slide.addShape(pptx.shapes.ROUNDED_RECTANGLE, { x: afterX, y: y + 0.2, w: colW, h: colH, fill: { color: _H('titleBg') }, line: { color: '66BB6A', width: 1 }, rectRadius: 0.08 });
                     slide.addText(aft.title.toUpperCase(), { x: afterX + 0.15, y: y + 0.3, w: colW - 0.3, h: 0.3, fontSize: 9, bold: true, color: '66BB6A', letterSpacing: 2 });
                     if ((aft.points || []).length > 0) {
-                        var aBullets = aft.points.map(function(p) { return { text: p, options: { fontSize: 10, color: 'B0BEC5', bullet: { code: '2713', color: '66BB6A' }, lineSpacing: 16, paraSpaceAfter: 3 } }; });
+                        var aBullets = aft.points.map(function(p) { return { text: p, options: { fontSize: 10, color: _H('subtextColor'), bullet: { code: '2713', color: '66BB6A' }, lineSpacing: 16, paraSpaceAfter: 3 } }; });
                         slide.addText(aBullets, { x: afterX + 0.15, y: y + 0.7, w: colW - 0.3, h: colH - 0.7, valign: 'top' });
                     }
                     break;
@@ -827,13 +850,13 @@
                         var sy = y + 0.3 + t * stepH;
                         var sc2 = colors[t % colors.length].replace('#', '');
                         if (t < steps.length - 1) {
-                            slide.addShape(pptx.shapes.LINE, { x: lineX, y: sy + 0.24, w: 0, h: stepH - 0.24, line: { color: '2A4A6C', width: 2 } });
+                            slide.addShape(pptx.shapes.LINE, { x: lineX, y: sy + 0.24, w: 0, h: stepH - 0.24, line: { color: _H('titleBg'), width: 2 } });
                         }
                         slide.addShape(pptx.shapes.OVAL, { x: lineX - 0.12, y: sy, w: 0.24, h: 0.24, fill: { color: sc2 } });
                         slide.addText(steps[t].phase || '', { x: lineX + 0.35, y: sy - 0.08, w: w - 0.8, h: 0.2, fontSize: 7, bold: true, color: sc2, letterSpacing: 1 });
-                        slide.addText(steps[t].title || '', { x: lineX + 0.35, y: sy + 0.12, w: w - 0.8, h: 0.22, fontSize: 11, bold: true, color: 'FFFFFF' });
+                        slide.addText(steps[t].title || '', { x: lineX + 0.35, y: sy + 0.12, w: w - 0.8, h: 0.22, fontSize: 11, bold: true, color: _H('textColor') });
                         if (steps[t].description) {
-                            slide.addText(steps[t].description, { x: lineX + 0.35, y: sy + 0.34, w: w - 0.8, h: 0.2, fontSize: 8, color: 'B0BEC5' });
+                            slide.addText(steps[t].description, { x: lineX + 0.35, y: sy + 0.34, w: w - 0.8, h: 0.2, fontSize: 8, color: _H('subtextColor') });
                         }
                     }
                     break;
@@ -849,9 +872,9 @@
                         var by = bStartY + p * bGap;
                         var pct = Math.min(100, Math.max(0, bars[p].value || 0));
                         var bc = colors[p % colors.length].replace('#', '');
-                        slide.addText(bars[p].label || '', { x: x + 0.1, y: by, w: bW * 0.7, h: 0.22, fontSize: 9, color: 'B0BEC5', align: 'left' });
+                        slide.addText(bars[p].label || '', { x: x + 0.1, y: by, w: bW * 0.7, h: 0.22, fontSize: 9, color: _H('subtextColor'), align: 'left' });
                         slide.addText(pct + pSfx, { x: x + 0.1 + bW * 0.7, y: by, w: bW * 0.3, h: 0.22, fontSize: 10, bold: true, color: bc, align: 'right' });
-                        slide.addShape(pptx.shapes.ROUNDED_RECTANGLE, { x: x + 0.1, y: by + 0.24, w: bW, h: bH, fill: { color: '1A3A5C' }, rectRadius: 0.04 });
+                        slide.addShape(pptx.shapes.ROUNDED_RECTANGLE, { x: x + 0.1, y: by + 0.24, w: bW, h: bH, fill: { color: _H('titleBg') }, rectRadius: 0.04 });
                         if (pct > 0) {
                             slide.addShape(pptx.shapes.ROUNDED_RECTANGLE, { x: x + 0.1, y: by + 0.24, w: bW * (pct / 100), h: bH, fill: { color: bc }, rectRadius: 0.04 });
                         }
@@ -859,7 +882,7 @@
                     break;
 
                 default:
-                    slide.addText('Visual: ' + ve.type, { x: x, y: y, w: w, h: h, fontSize: 12, color: '78909C', align: 'center', valign: 'middle' });
+                    slide.addText('Visual: ' + ve.type, { x: x, y: y, w: w, h: h, fontSize: 12, color: _H('subtextColor'), align: 'center', valign: 'middle' });
             }
         },
 
@@ -870,7 +893,7 @@
             } else if (data.segments) {
                 for (var j = 0; j < data.segments.length; j++) text += data.segments[j].label + ': ' + data.segments[j].value + '\n';
             }
-            if (text) slide.addText(text.trim(), { x: x, y: y, w: w, h: h, fontSize: 11, color: 'B0BEC5', align: 'center', valign: 'middle', lineSpacing: 18 });
+            if (text) slide.addText(text.trim(), { x: x, y: y, w: w, h: h, fontSize: 11, color: _H('subtextColor'), align: 'center', valign: 'middle', lineSpacing: 18 });
         },
 
         // =====================================================================
@@ -952,12 +975,12 @@
                     + '<div style="padding:20px;background:#fff;border:1px solid #eee;border-radius:8px;font-size:14px;line-height:1.7;max-height:500px;overflow-y:auto">' + content + '</div>';
                 return;
             }
-            var colors = SLIDE_THEME.chartColors;
+            var colors = _T().chartColors;
             var html = '<div style="max-width:600px;margin:0 auto;max-height:500px;overflow-y:auto">';
             // Header
-            html += '<div style="background:linear-gradient(135deg,#1a237e,#283593);border-radius:12px 12px 0 0;padding:28px 24px;text-align:center">';
+            html += '<div style="background:linear-gradient(135deg,' + _T().headerGradientFrom + ',' + _T().headerGradientTo + ');border-radius:12px 12px 0 0;padding:28px 24px;text-align:center">';
             if (parsed.title) html += '<div style="font-size:22px;font-weight:800;color:#fff;margin-bottom:6px">' + this._esc(parsed.title) + '</div>';
-            if (parsed.subtitle) html += '<div style="font-size:14px;color:#90caf9">' + this._esc(parsed.subtitle) + '</div>';
+            if (parsed.subtitle) html += '<div style="font-size:14px;color:' + _T().headerSubtitle + '">' + this._esc(parsed.subtitle) + '</div>';
             html += '</div>';
             // Sections
             var sections = parsed.sections || [];
@@ -979,16 +1002,16 @@
                 }
                 // Visual element (reuse existing helpers)
                 if (sec.visual_element && sec.visual_element.type && sec.visual_element.data) {
-                    html += '<div style="padding:12px;background:' + SLIDE_THEME.bg + ';border-radius:8px;margin-top:8px">';
+                    html += '<div style="padding:12px;background:' + _T().bg + ';border-radius:8px;margin-top:8px">';
                     html += this._renderVisualPreviewHtml(sec.visual_element, sColor);
                     html += '</div>';
                 }
                 html += '</div>';
             }
             // Footer
-            html += '<div style="background:#263238;border-radius:0 0 12px 12px;padding:16px 24px;text-align:center">';
+            html += '<div style="background:' + _T().footerBg + ';border-radius:0 0 12px 12px;padding:16px 24px;text-align:center">';
             if (parsed.call_to_action) html += '<div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:6px">' + this._esc(parsed.call_to_action) + '</div>';
-            if (parsed.footer) html += '<div style="font-size:11px;color:#90a4ae">' + this._esc(parsed.footer) + '</div>';
+            if (parsed.footer) html += '<div style="font-size:11px;color:' + _T().subtextColor + '">' + this._esc(parsed.footer) + '</div>';
             html += '</div></div>';
             container.innerHTML = html;
             // Render canvas charts
