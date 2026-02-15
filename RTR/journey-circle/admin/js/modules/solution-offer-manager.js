@@ -135,30 +135,18 @@
 
         /**
          * Show notification
+         * Delegates to the shared JCNotifications utility which uses
+         * Campaign Builder's notification framework (base.css classes).
          *
          * @param {string} message Notification message
          * @param {string} type Notification type ('success', 'error', 'warning')
          */
         showNotification(message, type = 'success') {
-            const notification = document.createElement('div');
-            notification.className = `jc-notification jc-notification--${type}`;
-            notification.innerHTML = `
-                <span class="jc-notification__icon">
-                    ${type === 'success' ? '✓' : type === 'error' ? '✕' : '⚠'}
-                </span>
-                <span class="jc-notification__message">${this.escapeHtml(message)}</span>
-            `;
-
-            document.body.appendChild(notification);
-
-            // Animate in
-            setTimeout(() => notification.classList.add('jc-notification--visible'), 10);
-
-            // Remove after delay
-            setTimeout(() => {
-                notification.classList.remove('jc-notification--visible');
-                setTimeout(() => notification.remove(), 300);
-            }, 4000);
+            if (window.JCNotifications) {
+                window.JCNotifications.show(type, message);
+            } else {
+                console.warn('[SolutionOfferManager]', type.toUpperCase(), message);
+            }
         }
 
         /**

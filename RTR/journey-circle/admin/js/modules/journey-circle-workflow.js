@@ -505,30 +505,16 @@
 
         /**
          * Show notification
+         * Delegates to the shared JCNotifications utility which uses
+         * Campaign Builder's notification framework (base.css classes).
          */
         showNotification(message, type = 'info') {
-            const $notification = $('<div>')
-                .addClass(`jc-notification jc-notification-${type}`)
-                .html(`
-                    <i class="fas fa-${type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
-                    <span>${message}</span>
-                    <button type="button" class="jc-notification-close">
-                        <i class="fas fa-times"></i>
-                    </button>
-                `)
-                .appendTo('.dr-journey-circle-creator');
-
-            $notification.find('.jc-notification-close').on('click', function() {
-                $(this).closest('.jc-notification').fadeOut(200, function() {
-                    $(this).remove();
-                });
-            });
-
-            setTimeout(() => {
-                $notification.fadeOut(200, function() {
-                    $(this).remove();
-                });
-            }, 5000);
+            if (window.JCNotifications) {
+                window.JCNotifications.show(type, message);
+            } else {
+                // Absolute fallback — should never happen if jc-notifications.js loads
+                console.warn('[JC Workflow]', type.toUpperCase(), message);
+            }
         }
 
         /**
@@ -542,6 +528,53 @@
                 this.state[key] = value;
             }
             this.saveState();
+        }
+
+        /**
+         * Reset workflow state to defaults.
+         *
+         * Called after a service area is deleted so that stale journey data
+         * (brain content, problems, solutions, offers, assets, etc.) doesn't
+         * bleed into subsequent steps or a new service area selection.
+         *
+         * Preserves clientId (we're still on the same client).
+         * Navigates back to Step 1 and fires jc:stateReset so modules can
+         * clear their own internal caches.
+         */
+        resetState() {
+            const clientId = this.config.clientId;
+
+            this.state = {
+                clientId: clientId,
+                serviceAreaId: null,
+                journeyCircleId: null,
+                currentStep: 1,
+                brainContent: [],
+                existingAssets: [],
+                industries: [],
+                primaryProblemId: null,
+                problems: [],
+                solutions: [],
+                offers: [],
+                assets: {},
+                selectedProblems: [],
+                selectedSolutions: {},
+                lastSaved: null
+            };
+
+            this.currentStep = 1;
+            this.saveState();
+            this.updateUI();
+
+            // Show Step 1, hide whatever was visible
+            $('.jc-step').hide();
+            $('#jc-step-1').show();
+
+            // Let every module know the slate is clean
+            $(document).trigger('jc:stateReset');
+            $(document).trigger('jc:stepChanged', [1]);
+
+            console.log('[JC Workflow] State reset to defaults');
         }
 
         /**

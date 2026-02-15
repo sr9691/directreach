@@ -246,6 +246,7 @@ class Journey_Circle_Admin {
         // Step-specific styles
         $step_css_files = array(
             '-steps456'   => 'journey-circle-steps456.css',
+            '-sa-actions' => 'service-area-actions.css',
             '-steps78'    => 'journey-circle-steps78.css',
             '-canvas'     => 'journey-circle-canvas.css',
             '-ai'         => 'journey-circle-ai.css',

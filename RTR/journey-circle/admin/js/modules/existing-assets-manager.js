@@ -108,7 +108,6 @@
                 const formData = new FormData();
                 formData.append('file', file);
                 formData.append('title', file.name);
-                formData.append('status', 'inherit');
 
                 // Get the base REST URL - strip custom namespace to get wp-json base
                 let restBase = this.workflow.config.restUrl;

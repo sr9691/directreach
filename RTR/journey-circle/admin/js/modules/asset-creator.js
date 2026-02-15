@@ -1057,26 +1057,15 @@
 
         /**
          * Show notification.
+         * Delegates to the shared JCNotifications utility which uses
+         * Campaign Builder's notification framework (base.css classes).
          */
         showNotification(message, type = 'info') {
-            // Remove existing notifications
-            document.querySelectorAll('.ac-notification').forEach(n => n.remove());
-
-            const notification = document.createElement('div');
-            notification.className = `ac-notification ac-notification-${type}`;
-            notification.innerHTML = `
-                <span class="notification-message">${this.escapeHtml(message)}</span>
-                <button class="notification-close">×</button>
-            `;
-
-            document.body.appendChild(notification);
-
-            notification.querySelector('.notification-close').addEventListener('click', () => {
-                notification.remove();
-            });
-
-            // Auto-remove after 5 seconds
-            setTimeout(() => notification.remove(), 5000);
+            if (window.JCNotifications) {
+                window.JCNotifications.show(type, message);
+            } else {
+                console.warn('[AssetCreator]', type.toUpperCase(), message);
+            }
         }
 
         /**

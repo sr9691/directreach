@@ -40,10 +40,49 @@
                 this.createServiceArea();
             });
 
-            // Select service area
+            // Select service area (ignore clicks on action buttons)
             $(document).on('click', '.jc-service-area-card', (e) => {
+                if ($(e.target).closest('.jc-sa-action-btn').length) {
+                    return; // Let the action button handler deal with it
+                }
                 const serviceAreaId = $(e.currentTarget).data('id');
                 this.selectServiceArea(serviceAreaId);
+            });
+
+            // Edit service area
+            $(document).on('click', '.jc-sa-edit-btn', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const id = $(e.currentTarget).data('id');
+                this.openEditModal(id);
+            });
+
+            // Delete service area
+            $(document).on('click', '.jc-sa-delete-btn', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const id = $(e.currentTarget).data('id');
+                this.confirmDeleteServiceArea(id);
+            });
+
+            // Edit modal — save
+            $(document).on('click', '#jc-sa-edit-save', () => {
+                this.saveEditServiceArea();
+            });
+
+            // Edit modal — cancel / close
+            $(document).on('click', '#jc-sa-edit-cancel, .jc-sa-edit-modal .jc-modal-close', () => {
+                this.closeEditModal();
+            });
+
+            // Delete confirm modal — confirm
+            $(document).on('click', '#jc-sa-delete-confirm', () => {
+                this.executeDeleteServiceArea();
+            });
+
+            // Delete confirm modal — cancel / close
+            $(document).on('click', '#jc-sa-delete-cancel, .jc-sa-delete-modal .jc-modal-close', () => {
+                this.closeDeleteModal();
             });
 
             // Restore state
@@ -150,7 +189,17 @@
                      data-id="${serviceArea.id}">
                     <div class="jc-sa-card-header">
                         <h4>${this.escapeHtml(serviceArea.name)}</h4>
-                        ${hasJourneyCircle ? '<span class="jc-sa-badge">Has Journey Circle</span>' : ''}
+                        <div class="jc-sa-card-actions">
+                            ${hasJourneyCircle ? '<span class="jc-sa-badge">Has Journey Circle</span>' : ''}
+                            <button type="button" class="jc-sa-action-btn jc-sa-edit-btn" 
+                                    data-id="${serviceArea.id}" title="Edit">
+                                <i class="fas fa-pencil-alt"></i>
+                            </button>
+                            <button type="button" class="jc-sa-action-btn jc-sa-delete-btn" 
+                                    data-id="${serviceArea.id}" title="Delete">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </div>
                     </div>
                     ${serviceArea.description ? `
                         <div class="jc-sa-card-description">
@@ -346,6 +395,221 @@
             // This will be expanded as we implement more steps
             
             console.log('Journey circle data loaded:', journeyCircle);
+        }
+
+        // ================================================================
+        // EDIT SERVICE AREA
+        // ================================================================
+
+        /**
+         * Open modal to edit a service area
+         */
+        openEditModal(serviceAreaId) {
+            const sa = this.serviceAreas.find(s => s.id === serviceAreaId);
+            if (!sa) return;
+
+            this._editingId = serviceAreaId;
+
+            // Remove any existing modal, then create fresh
+            $('.jc-sa-edit-modal').remove();
+
+            const modal = $(`
+                <div class="jc-modal jc-sa-edit-modal">
+                    <div class="jc-modal-content">
+                        <div class="jc-modal-header">
+                            <h3>Edit Service Area</h3>
+                            <button type="button" class="jc-modal-close"><i class="fas fa-times"></i></button>
+                        </div>
+                        <div class="jc-modal-body">
+                            <div class="jc-form-group">
+                                <label for="jc-sa-edit-name">Name <span class="required">*</span></label>
+                                <input type="text" id="jc-sa-edit-name" class="jc-input"
+                                       value="${this.escapeHtml(sa.name)}" maxlength="255" />
+                            </div>
+                            <div class="jc-form-group">
+                                <label for="jc-sa-edit-description">Description</label>
+                                <textarea id="jc-sa-edit-description" class="jc-textarea" rows="3">${this.escapeHtml(sa.description || '')}</textarea>
+                            </div>
+                        </div>
+                        <div class="jc-modal-footer">
+                            <button type="button" id="jc-sa-edit-cancel" class="btn btn-secondary">Cancel</button>
+                            <button type="button" id="jc-sa-edit-save" class="btn btn-primary">
+                                <i class="fas fa-save"></i> Save Changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `);
+
+            $('body').append(modal);
+            $('#jc-sa-edit-name').focus();
+        }
+
+        /**
+         * Save edited service area via REST API
+         */
+        async saveEditServiceArea() {
+            const id = this._editingId;
+            if (!id) return;
+
+            const name = $('#jc-sa-edit-name').val().trim();
+            const description = $('#jc-sa-edit-description').val().trim();
+
+            if (!name) {
+                this.workflow.showNotification('Service area name is required', 'error');
+                return;
+            }
+
+            const $btn = $('#jc-sa-edit-save');
+            const originalHtml = $btn.html();
+            $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Saving...');
+
+            try {
+                const response = await fetch(`${this.workflow.config.restUrl}/service-areas/${id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-WP-Nonce': this.workflow.config.restNonce
+                    },
+                    body: JSON.stringify({ title: name, description: description })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Failed to update service area');
+                }
+
+                const updated = await response.json();
+
+                // Update local cache
+                const idx = this.serviceAreas.findIndex(s => s.id === id);
+                if (idx !== -1) {
+                    this.serviceAreas[idx] = { ...this.serviceAreas[idx], ...updated };
+                }
+
+                this.closeEditModal();
+                this.renderServiceAreaList();
+                this.workflow.showNotification('Service area updated', 'success');
+
+            } catch (error) {
+                console.error('Error updating service area:', error);
+                this.workflow.showNotification(`Error: ${error.message}`, 'error');
+            } finally {
+                $btn.prop('disabled', false).html(originalHtml);
+            }
+        }
+
+        /**
+         * Close the edit modal
+         */
+        closeEditModal() {
+            $('.jc-sa-edit-modal').remove();
+            this._editingId = null;
+        }
+
+        // ================================================================
+        // DELETE SERVICE AREA
+        // ================================================================
+
+        /**
+         * Show delete confirmation modal
+         */
+        confirmDeleteServiceArea(serviceAreaId) {
+            const sa = this.serviceAreas.find(s => s.id === serviceAreaId);
+            if (!sa) return;
+
+            this._deletingId = serviceAreaId;
+
+            // Remove any existing modal, then create fresh
+            $('.jc-sa-delete-modal').remove();
+
+            const hasJC = sa.has_journey_circle || false;
+            const warningMsg = hasJC
+                ? '<p class="jc-delete-warning"><i class="fas fa-exclamation-triangle"></i> This service area has an associated journey circle. Deleting it will also remove the journey circle and all its problems, solutions, and offers.</p>'
+                : '';
+
+            const modal = $(`
+                <div class="jc-modal jc-sa-delete-modal">
+                    <div class="jc-modal-content" style="max-width:480px;">
+                        <div class="jc-modal-header">
+                            <h3>Delete Service Area</h3>
+                            <button type="button" class="jc-modal-close"><i class="fas fa-times"></i></button>
+                        </div>
+                        <div class="jc-modal-body">
+                            <p>Are you sure you want to delete <strong>${this.escapeHtml(sa.name)}</strong>?</p>
+                            ${warningMsg}
+                            <p style="color: var(--text-color-light, #666); font-size: 13px;">This action cannot be undone.</p>
+                        </div>
+                        <div class="jc-modal-footer">
+                            <button type="button" id="jc-sa-delete-cancel" class="btn btn-secondary">Cancel</button>
+                            <button type="button" id="jc-sa-delete-confirm" class="btn btn-danger">
+                                <i class="fas fa-trash-alt"></i> Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `);
+
+            $('body').append(modal);
+        }
+
+        /**
+         * Execute the deletion via REST API
+         */
+        async executeDeleteServiceArea() {
+            const id = this._deletingId;
+            if (!id) return;
+
+            const $btn = $('#jc-sa-delete-confirm');
+            const originalHtml = $btn.html();
+            $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Deleting...');
+
+            try {
+                const response = await fetch(`${this.workflow.config.restUrl}/service-areas/${id}?force=true`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-WP-Nonce': this.workflow.config.restNonce
+                    }
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Failed to delete service area');
+                }
+
+                // Remove from local cache
+                this.serviceAreas = this.serviceAreas.filter(s => s.id !== id);
+
+                // If the deleted SA was selected, reset the entire workflow state
+                // so stale data (brain content, problems, solutions, etc.) doesn't
+                // persist into later steps or a new SA selection.
+                if (this.selectedServiceAreaId === id) {
+                    this.selectedServiceAreaId = null;
+                    this.workflow.resetState();
+                }
+
+                this.closeDeleteModal();
+                this.renderServiceAreaList();
+
+                // Navigate to Step 2 so the user can pick / create a new SA
+                this.workflow.goToStep(2, true);
+
+                this.workflow.showNotification('Service area and all related data deleted', 'success');
+
+            } catch (error) {
+                console.error('Error deleting service area:', error);
+                this.workflow.showNotification(`Error: ${error.message}`, 'error');
+            } finally {
+                $btn.prop('disabled', false).html(originalHtml);
+            }
+        }
+
+        /**
+         * Close the delete confirmation modal
+         */
+        closeDeleteModal() {
+            $('.jc-sa-delete-modal').remove();
+            this._deletingId = null;
         }
 
         /**

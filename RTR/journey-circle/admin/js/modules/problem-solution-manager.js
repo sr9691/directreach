@@ -1862,34 +1862,16 @@ class ProblemSolutionManager {
      * Show notification
      */
     showNotification(message, type = 'info') {
-        // Try to use workflow's notification system
-        if (this.workflow.showNotification) {
+        // Delegate to the shared JCNotifications utility which uses
+        // Campaign Builder's notification framework (base.css classes).
+        if (window.JCNotifications) {
+            window.JCNotifications.show(type, message);
+        } else if (this.workflow && this.workflow.showNotification) {
             this.workflow.showNotification(message, type);
-            return;
+        } else {
+            const method = type === 'error' ? 'error' : type === 'warning' ? 'warn' : 'log';
+            console[method](`[JourneyCircle] ${message}`);
         }
-
-        // Fallback to console
-        const method = type === 'error' ? 'error' : type === 'warning' ? 'warn' : 'log';
-        console[method](`[JourneyCircle] ${message}`);
-
-        // Create simple notification if no system available
-        const notification = document.createElement('div');
-        notification.className = `jc-notification jc-notification-${type}`;
-        notification.innerHTML = `
-            <i class="fas fa-${type === 'error' ? 'exclamation-circle' : type === 'warning' ? 'exclamation-triangle' : type === 'success' ? 'check-circle' : 'info-circle'}"></i>
-            <span>${message}</span>
-        `;
-        
-        document.body.appendChild(notification);
-        
-        setTimeout(() => {
-            notification.classList.add('jc-notification-show');
-        }, 10);
-
-        setTimeout(() => {
-            notification.classList.remove('jc-notification-show');
-            setTimeout(() => notification.remove(), 300);
-        }, 3000);
     }
 
     /**
