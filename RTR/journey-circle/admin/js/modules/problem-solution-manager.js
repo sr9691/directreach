@@ -385,9 +385,6 @@ class ProblemSolutionManager {
 
         // Render the industry selector
         this.renderIndustrySelector(container);
-
-        // Attach event listeners
-        this.attachIndustryListeners();
     }
 
     /**
@@ -422,101 +419,65 @@ class ProblemSolutionManager {
             return;
         }
 
-        const html = `
-            <div class="jc-industry-selector">
-                <div class="jc-step-header">
-                    <h3>Select Target Industries</h3>
-                    <p class="jc-step-description">
-                        Choose the industries you want to target with this journey circle. 
-                        This helps generate more relevant problem and solution recommendations.
-                    </p>
-                </div>
+        // Render the available industries catalog into the existing template container
+        container.innerHTML = this.renderIndustryCategories();
 
-                <div class="jc-industry-controls">
-                    <div class="jc-industry-actions">
-                        <button type="button" class="jc-btn jc-btn-secondary jc-select-all-industries">
-                            <i class="fas fa-check-double"></i> Select All Industries
-                        </button>
-                        <button type="button" class="jc-btn jc-btn-secondary jc-clear-industries">
-                            <i class="fas fa-times"></i> Clear Selection
-                        </button>
-                    </div>
-                    <div class="jc-industry-search">
-                        <i class="fas fa-search"></i>
-                        <input type="text" 
-                               id="jc-industry-search" 
-                               placeholder="Search industries..." 
-                               class="jc-search-input">
-                    </div>
-                </div>
+        // Update the selected chips display
+        this.updateSelectedIndustriesDisplay();
 
-                <div class="jc-selected-count">
-                    <span id="jc-selected-industries-count">${this.selectedIndustries.length}</span> industries selected
-                </div>
-
-                <div class="jc-industry-list" id="jc-industry-list">
-                    ${this.renderIndustryCategories()}
-                </div>
-
-                <div class="jc-selected-industries-display" id="jc-selected-industries-display">
-                    <h4>Selected Industries:</h4>
-                    <div class="jc-selected-tags" id="jc-selected-tags">
-                        ${this.selectedIndustries.length === 0 
-                            ? '<span class="jc-empty-selection">No industries selected</span>'
-                            : this.renderSelectedTags()
-                        }
-                    </div>
-                </div>
-            </div>
-        `;
-
-        container.innerHTML = html;
+        // Attach event listeners
+        this.attachIndustryListeners();
     }
 
     /**
-     * Render industry categories with their subcategories
+     * Render industry categories with subcategories as clickable pills
      */
     renderIndustryCategories() {
         let html = '';
 
         Object.entries(this.industryTaxonomy).forEach(([category, subcategories]) => {
-            const categoryId = this.slugify(category);
+            const categorySlug = this.slugify(category);
             const hasSubcategories = subcategories && subcategories.length > 0;
 
+            // Build the list of pills for this category
+            let pillsHtml = '';
+            if (hasSubcategories) {
+                subcategories.forEach(sub => {
+                    const value = `${category}|${sub}`;
+                    const isSelected = this.isSelected(value);
+                    pillsHtml += `
+                        <button type="button" 
+                                class="jc-industry-pill ${isSelected ? 'jc-pill-selected' : ''}" 
+                                data-value="${this.escapeAttr(value)}" 
+                                data-category="${this.escapeAttr(category)}"
+                                data-subcategory="${this.escapeAttr(sub)}"
+                                ${isSelected ? 'disabled' : ''}>
+                            <span class="jc-pill-label">${sub}</span>
+                            <i class="fas ${isSelected ? 'fa-check' : 'fa-plus'}"></i>
+                        </button>
+                    `;
+                });
+            } else {
+                // Category with no subcategories — show itself as a pill
+                const isSelected = this.isSelected(category);
+                pillsHtml = `
+                    <button type="button" 
+                            class="jc-industry-pill ${isSelected ? 'jc-pill-selected' : ''}" 
+                            data-value="${this.escapeAttr(category)}" 
+                            data-category="${this.escapeAttr(category)}"
+                            ${isSelected ? 'disabled' : ''}>
+                        <span class="jc-pill-label">${category}</span>
+                        <i class="fas ${isSelected ? 'fa-check' : 'fa-plus'}"></i>
+                    </button>
+                `;
+            }
+
             html += `
-                <div class="jc-industry-category" data-category="${categoryId}">
-                    <div class="jc-category-header">
-                        <label class="jc-checkbox-label jc-category-checkbox-label">
-                            <input type="checkbox" 
-                                   class="jc-industry-checkbox jc-category-checkbox"
-                                   data-category="${category}"
-                                   data-value="${category}"
-                                   ${this.isSelected(category) ? 'checked' : ''}>
-                            <span class="jc-checkbox-custom"></span>
-                            <span class="jc-category-name">${category}</span>
-                        </label>
-                        ${hasSubcategories ? `
-                            <button type="button" class="jc-category-toggle" data-category="${categoryId}">
-                                <i class="fas fa-chevron-down"></i>
-                            </button>
-                        ` : ''}
+                <div class="jc-industry-category-group" data-category-slug="${categorySlug}">
+                    <h5 class="jc-category-heading">${category}</h5>
+                    <div class="jc-industry-pills">
+                        ${pillsHtml}
                     </div>
-                    ${hasSubcategories ? `
-                        <div class="jc-subcategory-list" id="jc-subcategories-${categoryId}">
-                            ${subcategories.map(sub => `
-                                <label class="jc-checkbox-label jc-subcategory-item">
-                                    <input type="checkbox" 
-                                           class="jc-industry-checkbox jc-subcategory-checkbox"
-                                           data-category="${category}"
-                                           data-subcategory="${sub}"
-                                           data-value="${category}|${sub}"
-                                           ${this.isSelected(`${category}|${sub}`) ? 'checked' : ''}>
-                                    <span class="jc-checkbox-custom"></span>
-                                    <span class="jc-subcategory-name">${sub}</span>
-                                </label>
-                            `).join('')}
-                        </div>
-                    ` : ''}
                 </div>
             `;
         });
@@ -525,49 +486,43 @@ class ProblemSolutionManager {
     }
 
     /**
-     * Render selected industry tags
+     * Render selected industry chips (Category → Subcategory ×)
      */
     renderSelectedTags() {
-        return this.selectedIndustries.map(industry => `
-            <span class="jc-selected-tag" data-value="${industry}">
-                ${industry.includes('|') ? industry.split('|')[1] : industry}
-                <button type="button" class="jc-remove-tag" data-value="${industry}">
-                    <i class="fas fa-times"></i>
-                </button>
-            </span>
-        `).join('');
+        return this.selectedIndustries.map(industry => {
+            let displayLabel;
+            if (industry.includes('|')) {
+                const parts = industry.split('|');
+                displayLabel = `${parts[0]} → ${parts[1]}`;
+            } else {
+                displayLabel = industry;
+            }
+            return `
+                <span class="jc-industry-chip" data-value="${this.escapeAttr(industry)}">
+                    ${displayLabel}
+                    <button type="button" class="jc-chip-remove" data-value="${this.escapeAttr(industry)}" title="Remove">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </span>
+            `;
+        }).join('');
     }
 
     /**
      * Attach event listeners for industry selection
      */
     attachIndustryListeners() {
-        // Category toggle
-        document.querySelectorAll('.jc-category-toggle').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const categoryId = btn.dataset.category;
-                const subcategoryList = document.getElementById(`jc-subcategories-${categoryId}`);
-                const icon = btn.querySelector('i');
-
-                if (subcategoryList) {
-                    subcategoryList.classList.toggle('jc-expanded');
-                    icon.classList.toggle('fa-chevron-down');
-                    icon.classList.toggle('fa-chevron-up');
-                }
+        // Click on available industry pill to add it
+        document.querySelectorAll('.jc-industry-pill').forEach(pill => {
+            pill.addEventListener('click', (e) => {
+                e.preventDefault();
+                const value = pill.dataset.value;
+                if (!value || this.isSelected(value)) return;
+                this.addIndustry(value);
             });
         });
 
-        // Checkbox changes
-        document.querySelectorAll('.jc-industry-checkbox').forEach(checkbox => {
-            checkbox.addEventListener('change', this.handleIndustryChange);
-        });
-
-        // Select all
-        document.querySelector('.jc-select-all-industries')?.addEventListener('click', () => {
-            this.selectAllIndustries();
-        });
-
-        // Clear selection
+        // Clear all button
         document.querySelector('.jc-clear-industries')?.addEventListener('click', () => {
             this.clearIndustrySelection();
         });
@@ -577,56 +532,32 @@ class ProblemSolutionManager {
             this.filterIndustries(e.target.value);
         });
 
-        // Remove tags
-        document.querySelectorAll('.jc-remove-tag').forEach(btn => {
-            btn.addEventListener('click', (e) => {
+        // Remove chip delegates (on the selected chips container)
+        document.getElementById('jc-selected-industry-chips')?.addEventListener('click', (e) => {
+            const removeBtn = e.target.closest('.jc-chip-remove');
+            if (removeBtn) {
                 e.stopPropagation();
-                const value = btn.dataset.value;
-                this.removeIndustry(value);
-            });
+                this.removeIndustry(removeBtn.dataset.value);
+            }
         });
     }
 
     /**
-     * Handle industry checkbox change
+     * Add an industry to the selection
      */
-    handleIndustryChange(e) {
-        const checkbox = e.target;
-        const value = checkbox.dataset.value;
-        const isCategory = checkbox.classList.contains('jc-category-checkbox');
+    addIndustry(value) {
+        if (this.isSelected(value)) return;
+        this.selectedIndustries.push(value);
 
-        if (checkbox.checked) {
-            if (!this.selectedIndustries.includes(value)) {
-                this.selectedIndustries.push(value);
-            }
-
-            // If it's a category, also select all subcategories
-            if (isCategory) {
-                const category = checkbox.dataset.category;
-                const subcategories = this.industryTaxonomy[category] || [];
-                subcategories.forEach(sub => {
-                    const subValue = `${category}|${sub}`;
-                    if (!this.selectedIndustries.includes(subValue)) {
-                        this.selectedIndustries.push(subValue);
-                    }
-                    // Update subcategory checkboxes
-                    const subCheckbox = document.querySelector(`input[data-value="${subValue}"]`);
-                    if (subCheckbox) subCheckbox.checked = true;
-                });
-            }
-        } else {
-            this.selectedIndustries = this.selectedIndustries.filter(i => i !== value);
-
-            // If it's a category, also deselect all subcategories
-            if (isCategory) {
-                const category = checkbox.dataset.category;
-                const subcategories = this.industryTaxonomy[category] || [];
-                subcategories.forEach(sub => {
-                    const subValue = `${category}|${sub}`;
-                    this.selectedIndustries = this.selectedIndustries.filter(i => i !== subValue);
-                    const subCheckbox = document.querySelector(`input[data-value="${subValue}"]`);
-                    if (subCheckbox) subCheckbox.checked = false;
-                });
+        // Update the pill in available list to show selected state
+        const pill = document.querySelector(`.jc-industry-pill[data-value="${CSS.escape(value)}"]`);
+        if (pill) {
+            pill.classList.add('jc-pill-selected');
+            pill.disabled = true;
+            const icon = pill.querySelector('i');
+            if (icon) {
+                icon.classList.remove('fa-plus');
+                icon.classList.add('fa-check');
             }
         }
 
@@ -635,14 +566,29 @@ class ProblemSolutionManager {
     }
 
     /**
+     * Handle industry checkbox change (legacy — kept for bind compatibility)
+     */
+    handleIndustryChange(e) {
+        // No longer used — pill click and chip remove handle selection
+    }
+
+    /**
      * Remove a specific industry
      */
     removeIndustry(value) {
         this.selectedIndustries = this.selectedIndustries.filter(i => i !== value);
-        
-        // Update checkbox
-        const checkbox = document.querySelector(`input[data-value="${value}"]`);
-        if (checkbox) checkbox.checked = false;
+
+        // Reset the pill in the available list
+        const pill = document.querySelector(`.jc-industry-pill[data-value="${CSS.escape(value)}"]`);
+        if (pill) {
+            pill.classList.remove('jc-pill-selected');
+            pill.disabled = false;
+            const icon = pill.querySelector('i');
+            if (icon) {
+                icon.classList.remove('fa-check');
+                icon.classList.add('fa-plus');
+            }
+        }
 
         this.updateSelectedIndustriesDisplay();
         this.saveIndustriesToState();
@@ -662,17 +608,24 @@ class ProblemSolutionManager {
         this.selectedIndustries = [];
 
         Object.entries(this.industryTaxonomy).forEach(([category, subcategories]) => {
-            this.selectedIndustries.push(category);
             if (subcategories && subcategories.length > 0) {
                 subcategories.forEach(sub => {
                     this.selectedIndustries.push(`${category}|${sub}`);
                 });
+            } else {
+                this.selectedIndustries.push(category);
             }
         });
 
-        // Update all checkboxes
-        document.querySelectorAll('.jc-industry-checkbox').forEach(cb => {
-            cb.checked = true;
+        // Update all pills to selected state
+        document.querySelectorAll('.jc-industry-pill').forEach(pill => {
+            pill.classList.add('jc-pill-selected');
+            pill.disabled = true;
+            const icon = pill.querySelector('i');
+            if (icon) {
+                icon.classList.remove('fa-plus');
+                icon.classList.add('fa-check');
+            }
         });
 
         this.updateSelectedIndustriesDisplay();
@@ -685,9 +638,15 @@ class ProblemSolutionManager {
     clearIndustrySelection() {
         this.selectedIndustries = [];
 
-        // Update all checkboxes
-        document.querySelectorAll('.jc-industry-checkbox').forEach(cb => {
-            cb.checked = false;
+        // Reset all pills
+        document.querySelectorAll('.jc-industry-pill').forEach(pill => {
+            pill.classList.remove('jc-pill-selected');
+            pill.disabled = false;
+            const icon = pill.querySelector('i');
+            if (icon) {
+                icon.classList.remove('fa-check');
+                icon.classList.add('fa-plus');
+            }
         });
 
         this.updateSelectedIndustriesDisplay();
@@ -699,29 +658,20 @@ class ProblemSolutionManager {
      */
     filterIndustries(searchTerm) {
         const term = searchTerm.toLowerCase().trim();
-        
-        document.querySelectorAll('.jc-industry-category').forEach(category => {
-            const categoryName = category.querySelector('.jc-category-name')?.textContent.toLowerCase() || '';
-            const subcategories = category.querySelectorAll('.jc-subcategory-item');
-            let hasMatch = categoryName.includes(term);
 
-            subcategories.forEach(sub => {
-                const subName = sub.querySelector('.jc-subcategory-name')?.textContent.toLowerCase() || '';
-                const matches = subName.includes(term);
-                sub.style.display = term === '' || matches ? '' : 'none';
+        document.querySelectorAll('.jc-industry-category-group').forEach(group => {
+            const heading = group.querySelector('.jc-category-heading')?.textContent.toLowerCase() || '';
+            const pills = group.querySelectorAll('.jc-industry-pill');
+            let hasMatch = heading.includes(term);
+
+            pills.forEach(pill => {
+                const label = pill.querySelector('.jc-pill-label')?.textContent.toLowerCase() || '';
+                const matches = term === '' || label.includes(term);
+                pill.style.display = matches ? '' : 'none';
                 if (matches) hasMatch = true;
             });
 
-            // Show/hide category based on matches
-            category.style.display = term === '' || hasMatch ? '' : 'none';
-
-            // Expand category if searching and has matches
-            if (term !== '' && hasMatch) {
-                const subcategoryList = category.querySelector('.jc-subcategory-list');
-                if (subcategoryList) {
-                    subcategoryList.classList.add('jc-expanded');
-                }
-            }
+            group.style.display = (term === '' || hasMatch) ? '' : 'none';
         });
     }
 
@@ -729,25 +679,24 @@ class ProblemSolutionManager {
      * Update the selected industries display
      */
     updateSelectedIndustriesDisplay() {
-        const countEl = document.getElementById('jc-selected-industries-count');
-        const tagsEl = document.getElementById('jc-selected-tags');
+        const countEl = document.getElementById('jc-industry-count');
+        const chipsEl = document.getElementById('jc-selected-industry-chips');
+        const clearBtn = document.querySelector('.jc-clear-industries');
 
         if (countEl) {
             countEl.textContent = this.selectedIndustries.length;
         }
 
-        if (tagsEl) {
+        // Show/hide clear button
+        if (clearBtn) {
+            clearBtn.style.display = this.selectedIndustries.length > 0 ? '' : 'none';
+        }
+
+        if (chipsEl) {
             if (this.selectedIndustries.length === 0) {
-                tagsEl.innerHTML = '<span class="jc-empty-selection">No industries selected</span>';
+                chipsEl.innerHTML = '<span class="jc-empty-selection">No industries selected — click industries below to add them</span>';
             } else {
-                tagsEl.innerHTML = this.renderSelectedTags();
-                // Re-attach remove listeners
-                tagsEl.querySelectorAll('.jc-remove-tag').forEach(btn => {
-                    btn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        this.removeIndustry(btn.dataset.value);
-                    });
-                });
+                chipsEl.innerHTML = this.renderSelectedTags();
             }
         }
     }
@@ -1881,6 +1830,18 @@ class ProblemSolutionManager {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    /**
+     * Escape text for use in HTML attributes
+     */
+    escapeAttr(text) {
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
     }
 
     /**

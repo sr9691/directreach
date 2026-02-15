@@ -377,38 +377,51 @@ if (!$client) {
             <div class="jc-step-container" id="jc-step-4" style="display: none;">
                 <div class="jc-step-header">
                     <h2><?php esc_html_e('Step 4: Select Target Industries', 'directreach-campaign-builder'); ?></h2>
-                    <p><?php esc_html_e('Choose the industries you want to target with this journey circle. This helps AI generate more relevant content.', 'directreach-campaign-builder'); ?></p>
+                    <p><?php esc_html_e('Click on an industry below to add it. This helps AI generate more relevant content.', 'directreach-campaign-builder'); ?></p>
                 </div>
                 
                 <div class="jc-step-content">
                     <div class="jc-industry-section">
-                        <div class="jc-industry-search">
+
+                        <!-- Selected Industries (top) -->
+                        <div class="jc-selected-industries-box" id="jc-selected-industries-box">
+                            <div class="jc-selected-industries-header">
+                                <h4>
+                                    <i class="fas fa-check-circle"></i>
+                                    <?php esc_html_e('Selected Industries', 'directreach-campaign-builder'); ?>
+                                    (<span id="jc-industry-count">0</span>)
+                                </h4>
+                                <button type="button" class="jc-btn jc-btn-secondary jc-btn-sm jc-clear-industries" style="display:none;">
+                                    <i class="fas fa-times"></i> <?php esc_html_e('Clear All', 'directreach-campaign-builder'); ?>
+                                </button>
+                            </div>
+                            <div id="jc-selected-industry-chips" class="jc-selected-industry-chips">
+                                <span class="jc-empty-selection"><?php esc_html_e('No industries selected — click industries below to add them', 'directreach-campaign-builder'); ?></span>
+                            </div>
+                        </div>
+
+                        <!-- Search -->
+                        <div class="jc-industry-search-bar">
+                            <i class="fas fa-search"></i>
                             <input 
                                 type="text" 
                                 id="jc-industry-search" 
-                                class="jc-input" 
+                                class="jc-search-input" 
                                 placeholder="<?php esc_attr_e('Search industries...', 'directreach-campaign-builder'); ?>"
                             />
                         </div>
-                        
-                        <div class="jc-industry-options">
-                            <label class="jc-checkbox-label jc-select-all">
-                                <input type="checkbox" id="jc-industry-all" />
-                                <span><?php esc_html_e('All Industries', 'directreach-campaign-builder'); ?></span>
-                            </label>
-                        </div>
-                        
-                        <div id="jc-industry-list" class="jc-industry-list">
-                            <div class="jc-loading-state">
-                                <i class="fas fa-spinner fa-spin"></i>
-                                <p><?php esc_html_e('Loading industries...', 'directreach-campaign-builder'); ?></p>
+
+                        <!-- Available Industries (bottom) -->
+                        <div class="jc-available-industries" id="jc-available-industries">
+                            <h4><?php esc_html_e('Available Industries', 'directreach-campaign-builder'); ?></h4>
+                            <div id="jc-industry-list" class="jc-industry-catalog">
+                                <div class="jc-loading-state">
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                    <p><?php esc_html_e('Loading industries...', 'directreach-campaign-builder'); ?></p>
+                                </div>
                             </div>
                         </div>
-                        
-                        <div class="jc-selected-industries">
-                            <h4><?php esc_html_e('Selected Industries', 'directreach-campaign-builder'); ?>: <span id="jc-industry-count">0</span></h4>
-                            <div id="jc-selected-industry-tags" class="jc-tag-container"></div>
-                        </div>
+
                     </div>
                 </div>
             </div>
