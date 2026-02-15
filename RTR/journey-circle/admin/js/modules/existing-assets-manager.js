@@ -47,6 +47,15 @@
             // Drag and drop
             this.initDragDrop('#jc-asset-upload-area');
 
+            // URL asset input
+            $('.jc-add-asset-url-btn').on('click', () => this.addAssetURL());
+            $('#jc-asset-url-input').on('keypress', (e) => {
+                if (e.which === 13) {
+                    e.preventDefault();
+                    this.addAssetURL();
+                }
+            });
+
             // Delete asset (delegated)
             $(document).on('click', '.jc-asset-delete', (e) => {
                 e.preventDefault();
@@ -201,9 +210,62 @@
         }
 
         /**
-         * Validate file before upload
+         * Add a URL as an existing asset
          */
-        validateFile(file) {
+        addAssetURL() {
+            const url = $('#jc-asset-url-input').val().trim();
+
+            if (!url) {
+                this.workflow.showNotification('Please enter a URL', 'error');
+                return;
+            }
+
+            // Basic URL validation
+            try {
+                new URL(url);
+            } catch (_) {
+                this.workflow.showNotification('Please enter a valid URL (e.g. https://example.com/page)', 'error');
+                return;
+            }
+
+            // Check for duplicates
+            if (this.assets.some(a => a.type === 'url' && a.value === url)) {
+                this.workflow.showNotification('This URL has already been added', 'error');
+                return;
+            }
+
+            // Extract a readable name from the URL
+            let name = url;
+            try {
+                const parsed = new URL(url);
+                const path = parsed.pathname.replace(/\/$/, '');
+                name = path && path !== '/'
+                    ? decodeURIComponent(path.split('/').pop().replace(/[-_]/g, ' '))
+                    : parsed.hostname;
+            } catch (_) { /* keep full url as name */ }
+
+            this.assets.push({
+                type: 'url',
+                value: url,
+                name: name,
+                fileId: null,
+                size: null,
+                mimeType: null,
+                addedAt: new Date().toISOString()
+            });
+
+            // Update UI
+            $('#jc-asset-url-input').val('');
+            this.renderAssetList();
+            this.updateAssetCount();
+            this.saveToWorkflow();
+
+            this.workflow.showNotification('Asset URL added successfully', 'success');
+        }
+
+        /**
+         * Validate file before upload
+         */        validateFile(file) {
             // Check file size
             if (file.size > this.maxFileSize) {
                 return {
@@ -266,7 +328,7 @@
                 $list.html(`
                     <div class="jc-empty-state">
                         <i class="fas fa-inbox"></i>
-                        <p>No assets uploaded yet</p>
+                        <p>No assets added yet. Upload files or add URLs above.</p>
                     </div>
                 `);
                 return;
@@ -275,6 +337,10 @@
             this.assets.forEach((asset, index) => {
                 const icon = this.getFileIcon(asset);
                 const size = this.formatFileSize(asset.size);
+                const isUrl = asset.type === 'url';
+                const meta = isUrl
+                    ? `<a href="${this.escapeHtml(asset.value)}" target="_blank" rel="noopener noreferrer" class="jc-asset-url-link">${this.escapeHtml(asset.value)}</a>`
+                    : (size ? `<span class="jc-asset-meta">${size}</span>` : '');
 
                 $list.append(`
                     <div class="jc-asset-item" data-index="${index}">
@@ -283,7 +349,7 @@
                         </div>
                         <div class="jc-asset-info">
                             <span class="jc-asset-name">${this.escapeHtml(asset.name)}</span>
-                            <span class="jc-asset-meta">${size}</span>
+                            ${meta}
                         </div>
                         <div class="jc-asset-actions">
                             <button class="jc-asset-delete" data-index="${index}" title="Remove asset">
@@ -375,6 +441,7 @@
          * Get appropriate icon for file type
          */
         getFileIcon(asset) {
+            if (asset.type === 'url') return 'fa-link';
             if (!asset.mimeType && !asset.name) return 'fa-file';
 
             const ext = asset.name ? asset.name.split('.').pop().toLowerCase() : '';

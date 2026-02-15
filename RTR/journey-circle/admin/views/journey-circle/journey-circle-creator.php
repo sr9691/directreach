@@ -305,7 +305,7 @@ if (!$client) {
             <div class="jc-step-container" id="jc-step-3" style="display: none;">
                 <div class="jc-step-header">
                     <h2><?php esc_html_e('Step 3: Upload Existing Assets (Optional)', 'directreach-campaign-builder'); ?></h2>
-                    <p><?php esc_html_e('Upload any existing content assets you want to include in this journey circle.', 'directreach-campaign-builder'); ?></p>
+                    <p><?php esc_html_e('Add existing content assets — upload files or link to content already published online.', 'directreach-campaign-builder'); ?></p>
                 </div>
                 
                 <div class="jc-step-content">
@@ -327,17 +327,38 @@ if (!$client) {
                         </div>
                     </div>
 
-                    <!-- Uploaded Assets List -->
+                    <!-- Asset URL Input -->
+                    <div class="jc-asset-url-input-section">
+                        <h3>
+                            <i class="fas fa-link"></i>
+                            <?php esc_html_e('Add Asset URL', 'directreach-campaign-builder'); ?>
+                        </h3>
+                        <p class="jc-section-description"><?php esc_html_e('Link to an existing asset hosted online (blog post, article, landing page, etc.)', 'directreach-campaign-builder'); ?></p>
+                        <div class="jc-url-input-group">
+                            <input 
+                                type="url" 
+                                id="jc-asset-url-input" 
+                                class="jc-input jc-input-url" 
+                                placeholder="https://example.com/your-existing-asset"
+                            />
+                            <button type="button" class="btn btn-primary jc-add-asset-url-btn">
+                                <i class="fas fa-plus"></i>
+                                <?php esc_html_e('Add URL', 'directreach-campaign-builder'); ?>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Assets List -->
                     <div class="jc-asset-section">
                         <h3>
                             <i class="fas fa-list"></i>
-                            <?php esc_html_e('Uploaded Assets', 'directreach-campaign-builder'); ?>
+                            <?php esc_html_e('Added Assets', 'directreach-campaign-builder'); ?>
                             <span class="jc-asset-count">0</span>
                         </h3>
                         <div id="jc-asset-list" class="jc-asset-list">
                             <div class="jc-empty-state">
                                 <i class="fas fa-inbox"></i>
-                                <p><?php esc_html_e('No assets uploaded yet', 'directreach-campaign-builder'); ?></p>
+                                <p><?php esc_html_e('No assets added yet. Upload files or add URLs above.', 'directreach-campaign-builder'); ?></p>
                             </div>
                         </div>
                     </div>
@@ -346,7 +367,7 @@ if (!$client) {
                     <div class="jc-skip-section">
                         <p class="jc-help-text">
                             <i class="fas fa-info-circle"></i>
-                            <?php esc_html_e('You can skip this step if you don\'t have existing assets to upload.', 'directreach-campaign-builder'); ?>
+                            <?php esc_html_e('You can skip this step if you don\'t have existing assets to add.', 'directreach-campaign-builder'); ?>
                         </p>
                     </div>
                 </div>

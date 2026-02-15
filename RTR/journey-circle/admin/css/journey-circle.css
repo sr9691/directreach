@@ -514,6 +514,49 @@
     /* Inherits from .jc-file-upload-area */
 }
 
+/* URL asset input (Step 3) */
+.jc-asset-url-input-section {
+    margin-bottom: 30px;
+}
+
+.jc-asset-url-input-section h3 {
+    font-size: 16px;
+    margin: 0 0 8px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.jc-asset-url-input-section h3 i {
+    color: #2271b1;
+}
+
+.jc-section-description {
+    font-size: 13px;
+    color: var(--text-secondary, #666);
+    margin: 0 0 12px 0;
+}
+
+/* URL link inside asset list items */
+.jc-asset-url-link {
+    font-size: 12px;
+    color: var(--primary-color, #2271b1);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block;
+}
+
+.jc-asset-url-link:hover {
+    text-decoration: underline;
+}
+
+/* URL-type icon tint */
+.jc-asset-item .jc-asset-icon .fa-link {
+    color: var(--primary-color, #2271b1);
+}
+
 .jc-asset-section {
     margin-bottom: 30px;
 }
