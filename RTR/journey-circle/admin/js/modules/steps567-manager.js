@@ -419,13 +419,34 @@
         async loadAllSolutions(container, loading, regenBtn, forceRefresh) {
             if (loading) loading.style.display = 'flex';
             if (regenBtn) regenBtn.disabled = true;
-            container.innerHTML = '';
 
             const state = this.workflow.getState();
 
+            // *** FIX #4: Determine which problems need new solutions ***
+            // Only regenerate for problems that DON'T have a confirmed selection
+            const problemsToRegenerate = forceRefresh
+                ? this.selectedProblems.filter(p => !this.selectedSolutions[p.id])
+                : this.selectedProblems.filter(p => !this.solutionSuggestions[p.id] || this.solutionSuggestions[p.id].length === 0);
+
+            // If forceRefresh but ALL solutions are selected, regenerate all 
+            // unselected ones (if none are unselected, do nothing)
+            if (forceRefresh && problemsToRegenerate.length === 0) {
+                // All problems have selections — inform user
+                if (loading) loading.style.display = 'none';
+                if (regenBtn) regenBtn.disabled = false;
+                this.renderStep7(container);
+                // Show a notification that all solutions are locked
+                if (window.JCNotifications) {
+                    window.JCNotifications.show('info', 
+                        'All solutions are already selected. Deselect a solution first to regenerate alternatives for it.');
+                }
+                return;
+            }
+
+            // Only clear/rebuild the container if we have problems to regenerate
+            // Preserve existing suggestions for selected solutions
             try {
-                // Generate solutions for each selected problem
-                for (const problem of this.selectedProblems) {
+                for (const problem of problemsToRegenerate) {
                     const response = await fetch(`${this.apiBase}/ai/generate-solution-titles`, {
                         method: 'POST',
                         headers: {
@@ -439,7 +460,9 @@
                             service_area_name: '',
                             industries: state.industries || [],
                             brain_content: state.brainContent || [],
-                            force_refresh: forceRefresh
+                            force_refresh: forceRefresh,
+                            // *** FIX #4: Send already-selected titles so AI avoids duplicates ***
+                            exclude_titles: Object.values(this.selectedSolutions).filter(Boolean)
                         })
                     });
 
@@ -453,13 +476,11 @@
                             return { title: typeof t === 'string' ? t : String(t), rationale: '' };
                         });
                     } else {
-                        // Provide manual entry option for this problem
                         this.solutionSuggestions[problem.id] = [];
                     }
                 }
 
                 this.renderStep7(container);
-                // Persist solution suggestions so they survive reload
                 this.workflow.updateState('solutionSuggestions', this.solutionSuggestions);
             } catch (error) {
                 console.error('Solution generation error:', error);
@@ -468,8 +489,11 @@
                         <p><strong>AI generation failed:</strong> ${this.esc(error.message)}</p>
                         <p>You can manually enter solution titles for each problem.</p>
                     </div>`;
-                // Render manual entry for all problems
-                this.selectedProblems.forEach(p => { this.solutionSuggestions[p.id] = []; });
+                problemsToRegenerate.forEach(p => { 
+                    if (!this.solutionSuggestions[p.id]) {
+                        this.solutionSuggestions[p.id] = []; 
+                    }
+                });
                 this.renderStep7(container);
             } finally {
                 if (loading) loading.style.display = 'none';
@@ -485,11 +509,21 @@
 
                 return `
                     <div class="jc-solution-group" style="margin-bottom:24px;padding:16px;border:1px solid #ddd;border-radius:8px;background:#fafafa">
-                        <h4 style="margin:0 0 4px 0;color:#e74c3c;font-size:13px;text-transform:uppercase;letter-spacing:.5px">
-                            Problem ${pi + 1}
-                        </h4>
-                        <p style="margin:0 0 12px 0;font-weight:600;font-size:15px">${this.esc(problem.title)}</p>
-                        
+                        <div style="display:flex;align-items:center;justify-content:space-between">
+                            <div>
+                                <h4 style="margin:0 0 4px 0;color:#e74c3c;font-size:13px;text-transform:uppercase;letter-spacing:.5px">
+                                    Problem ${pi + 1}
+                                </h4>
+                                <p style="margin:0 0 12px 0;font-weight:600;font-size:15px">${this.esc(problem.title)}</p>
+                            </div>
+                            ${selectedSol ? `
+                                <button type="button" class="jc-unlock-solution-btn" data-problem-id="${problem.id}"
+                                    style="background:none;border:1px solid #e0e0e0;border-radius:4px;padding:4px 10px;font-size:11px;color:#666;cursor:pointer"
+                                    title="Unlock this solution so it can be regenerated">
+                                    <i class="fas fa-lock-open" style="font-size:10px"></i> Unlock
+                                </button>
+                            ` : ''}
+                        </div>                        
                         <div style="margin-left:12px">
                             <p style="margin:0 0 8px 0;color:#42a5f5;font-weight:600;font-size:13px">
                                 <i class="fas fa-arrow-right"></i> Select a Solution:
@@ -531,6 +565,16 @@
                     this.selectedSolutions[e.target.dataset.problemId] = e.target.value;
                     this.workflow.updateState('selectedSolutions', this.selectedSolutions);
                     this.renderStep7(container); // Re-render for styles
+                });
+            });
+
+            // Bind unlock buttons
+            container.querySelectorAll('.jc-unlock-solution-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const problemId = btn.dataset.problemId;
+                    delete this.selectedSolutions[problemId];
+                    this.workflow.updateState('selectedSolutions', this.selectedSolutions);
+                    this.renderStep7(container);
                 });
             });
 
