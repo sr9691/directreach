@@ -370,7 +370,7 @@ class ProblemSolutionManager {
         // Load industry taxonomy from API
         await this.fetchIndustryTaxonomy();
 
-        // Load saved state (from local state first, then try API)
+        // *** FIX #3: Always re-read state fresh when entering step ***
         const state = this.workflow.getState();
         this.selectedIndustries = state.industries || [];
 
@@ -385,6 +385,13 @@ class ProblemSolutionManager {
 
         // Render the industry selector
         this.renderIndustrySelector(container);
+        
+        // *** FIX #3: Schedule a second display update after DOM settles ***
+        // This handles the case where the step container transitions from
+        // display:none to display:block asynchronously
+        requestAnimationFrame(() => {
+            this.updateSelectedIndustriesDisplay();
+        });
     }
 
     /**
@@ -422,7 +429,13 @@ class ProblemSolutionManager {
         // Render the available industries catalog into the existing template container
         container.innerHTML = this.renderIndustryCategories();
 
-        // Update the selected chips display
+        // *** FIX #3: Force re-sync selected industries display ***
+        // When returning to this step, the chips container and count 
+        // may still show stale template defaults. Re-apply from state.
+        const state = this.workflow.getState();
+        this.selectedIndustries = state.industries || [];
+
+        // Update the selected chips display (count + chip elements)
         this.updateSelectedIndustriesDisplay();
 
         // Attach event listeners
