@@ -29,7 +29,7 @@ export default class ScoreBreakdownModal {
                     <div class="modal-header">
                         <h3 class="modal-title">
                             <i class="fas fa-calculator"></i>
-                            Lead Score Breakdown
+                            Intent Score Breakdown
                         </h3>
                         <button class="modal-close" aria-label="Close">
                             <span>&times;</span>
@@ -151,7 +151,7 @@ export default class ScoreBreakdownModal {
                     ${this.escapeHtml(prospectName)}
                 </div>
                 <div class="score-total">
-                    <div class="score-total-label">Total Score</div>
+                    <div class="score-total-label">Intent Score</div>
                     <div class="score-total-value">${total_score}</div>
                 </div>
                 <div class="score-room">
@@ -180,7 +180,7 @@ export default class ScoreBreakdownModal {
                     <span class="score-summary-value">${breakdown?.offer || 0} pts</span>
                 </div>
                 <div class="score-summary-row score-summary-total">
-                    <span class="score-summary-label">Total Score:</span>
+                    <span class="score-summary-label">Total Intent Score:</span>
                     <span class="score-summary-value">${total_score} pts</span>
                 </div>
             </div>

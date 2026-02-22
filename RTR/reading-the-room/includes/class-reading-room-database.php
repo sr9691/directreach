@@ -368,7 +368,8 @@ final class Reading_Room_Database
         
         $where_sql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
         $sql = "
-            SELECT p.*, c.campaign_name AS campaign_name, c.client_id as client_id
+            SELECT p.*, c.campaign_name AS campaign_name, c.client_id as client_id,
+                   v.lead_score, v.current_room
             FROM {$this->table_prospects} p
             LEFT JOIN {$this->table_campaigns} c ON p.campaign_id = c.id
             LEFT JOIN {$this->db->prefix}cpd_visitors v ON p.visitor_id = v.id

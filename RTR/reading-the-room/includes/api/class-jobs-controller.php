@@ -1330,6 +1330,20 @@ class Jobs_Controller extends WP_REST_Controller {
                 );
             }
             
+            // Sync recalculated score back to the prospects table
+            // so the card display stays consistent with the breakdown
+            $wpdb->update(
+                $wpdb->prefix . 'rtr_prospects',
+                [
+                    'lead_score'   => $score_data['total_score'],
+                    'current_room' => $score_data['current_room'],
+                    'updated_at'   => current_time('mysql'),
+                ],
+                ['visitor_id' => $visitor_id],
+                ['%d', '%s', '%s'],
+                ['%d']
+            );
+
             $score_data['visitor_id'] = $visitor_id;
             $score_data['prospect_id'] = $prospect_id;
             $score_data['client_id'] = $client_id;

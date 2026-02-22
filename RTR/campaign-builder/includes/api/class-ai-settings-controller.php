@@ -113,7 +113,7 @@ class AI_Settings_Controller extends \WP_REST_Controller {
             $config = [
                 'enabled' => $this->is_ai_enabled(),
                 'api_key_set' => $this->has_api_key(),
-                'model' => get_option('dr_gemini_model', 'gemini-1.5-flash-latest'),
+                'model' => get_option('dr_gemini_model', 'gemini-2.5-flash'),
                 'temperature' => (float) get_option('dr_gemini_temperature', 0.7),
                 'max_tokens' => (int) get_option('dr_gemini_max_tokens', 1000),
                 'rate_limit_enabled' => $this->is_rate_limit_enabled(),
@@ -264,7 +264,7 @@ class AI_Settings_Controller extends \WP_REST_Controller {
             // Use provided model or get from storage
             $model = isset($params['model']) && !empty($params['model'])
                 ? sanitize_text_field($params['model'])
-                : get_option('dr_gemini_model', 'gemini-1.5-flash');
+                : get_option('dr_gemini_model', 'gemini-2.5-flash');
 
                 // Test connection with simple API call
             $test_result = $this->test_gemini_connection($api_key, $model);
@@ -447,16 +447,16 @@ class AI_Settings_Controller extends \WP_REST_Controller {
     private function get_fallback_models() {
         return [
             [
-                'name' => 'gemini-1.5-flash-latest',
-                'display_name' => 'Gemini 1.5 Flash (Recommended)',
+                'name' => 'gemini-2.5-flash',
+                'display_name' => 'Gemini 2.5 Flash (Recommended)',
             ],
             [
-                'name' => 'gemini-1.5-pro-latest',
-                'display_name' => 'Gemini 1.5 Pro',
+                'name' => 'gemini-2.5-pro',
+                'display_name' => 'Gemini 2.5 Pro',
             ],
             [
-                'name' => 'gemini-1.5-flash-8b-latest',
-                'display_name' => 'Gemini 1.5 Flash-8B (Fastest)',
+                'name' => 'gemini-2.5-flash-lite',
+                'display_name' => 'Gemini 2.5 Flash-Lite (Fastest)',
             ],
         ];
     }

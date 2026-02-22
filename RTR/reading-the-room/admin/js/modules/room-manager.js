@@ -71,6 +71,11 @@ export default class RoomManager {
                 url.searchParams.append('client_id', clientFilter.value);
             }
 
+            const dateFilter = document.getElementById('date-filter');
+            if (dateFilter && dateFilter.value) {
+                url.searchParams.append('days', dateFilter.value);
+            }
+
             const response = await fetch(url, {
                 headers: {
                     'X-WP-Nonce': this.nonce

@@ -585,12 +585,12 @@ class CPD_AI_Email_Generator {
         // Handle 404 - model not found or not supported
         if ( $status_code === 404 && $retry_with_fallback ) {
             error_log( sprintf(
-                '[DirectReach] Model %s not found/supported, falling back to gemini-1.5-flash',
+                '[DirectReach] Model %s not found/supported, falling back to gemini-2.5-flash',
                 $model
             ));
             
             // Try again with known working model
-            return $this->call_gemini_api_with_model( $payload, 'gemini-1.5-flash', false );
+            return $this->call_gemini_api_with_model( $payload, 'gemini-2.5-flash', false );
         }
 
         if ( $status_code !== 200 ) {

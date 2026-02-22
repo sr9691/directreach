@@ -43,7 +43,7 @@ class DR_AI_Content_Generator {
      *
      * @var string
      */
-    const DEFAULT_MODEL = 'gemini-2.0-flash';
+    const DEFAULT_MODEL = 'gemini-2.5-flash';
 
     /**
      * Cache duration in seconds (15 minutes).

@@ -531,7 +531,7 @@ export default class ProspectManager {
         
         const scoreLabel = document.createElement('span');
         scoreLabel.className = 'rtr-score-label';
-        scoreLabel.textContent = 'Lead Score:';
+        scoreLabel.textContent = 'Intent Score:';
         
         const scoreValue = document.createElement('span');
         scoreValue.className = 'rtr-score-value rtr-score-clickable';

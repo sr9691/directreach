@@ -210,8 +210,8 @@ class AISettingsManager {
             console.error('Failed to load models:', error);
             // Fallback to default models
             this.populateModelDropdown([
-                { name: 'gemini-1.5-pro-latest', display_name: 'Gemini 1.5 Pro (Recommended)' },
-                { name: 'gemini-1.5-flash-latest', display_name: 'Gemini 1.5 Flash (Faster/Cheaper)' }
+                { name: 'gemini-2.5-flash', display_name: 'Gemini 2.5 Flash (Recommended)' },
+                { name: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro (Higher Quality)' }
             ]);
         }
     }
@@ -292,7 +292,7 @@ class AISettingsManager {
     gatherFormData() {
         const data = {
             enabled: this.aiEnabledInput ? this.aiEnabledInput.checked : false,
-            model: this.modelSelect ? this.modelSelect.value : 'gemini-1.5-pro-latest',
+            model: this.modelSelect ? this.modelSelect.value : 'gemini-2.5-flash',
             temperature: this.temperatureInput ? parseFloat(this.temperatureInput.value) : 0.7,
             max_tokens: this.maxTokensInput ? parseInt(this.maxTokensInput.value) : 1000,
             rate_limit_enabled: this.rateLimitEnabledInput ? this.rateLimitEnabledInput.checked : true,

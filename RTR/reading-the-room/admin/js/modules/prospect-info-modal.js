@@ -577,7 +577,7 @@ const data = await response.json();
                             </span>
                         </div>
                         <div class="info-item">
-                            <span class="info-label">Lead Score:</span>
+                            <span class="info-label">Intent Score:</span>
                             <span class="info-value">
                                 <span class="lead-score-badge" style="background-color: ${this.getScoreColor(visitor.lead_score)}">${visitor.lead_score || 0}</span>
                             </span>

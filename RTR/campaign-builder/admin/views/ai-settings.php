@@ -87,7 +87,7 @@ if (!defined('ABSPATH')) {
                             <option value="">Loading models...</option>
                         </select>
                         <span class="help-text">
-                            Gemini 1.5 Pro is recommended for best quality. Flash is faster and cheaper.
+                            Gemini 2.5 Flash is recommended for best balance of quality and speed. Pro is higher quality but slower.
                         </span>
                     </div>
 

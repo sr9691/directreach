@@ -181,6 +181,7 @@ final class Reading_Room_Controller extends WP_REST_Controller
                 'args'                => [
                     'client_id'   => ['type' => 'integer', 'required' => false],
                     'campaign_id' => ['type' => 'integer', 'required' => false],
+                    'days'        => ['type' => 'integer', 'required' => false],
                 ],
             ],
         ]);
@@ -626,6 +627,10 @@ final class Reading_Room_Controller extends WP_REST_Controller
             
             if ($request->has_param('campaign_id') && !empty($request->get_param('campaign_id'))) {
                 $filters['campaign_id'] = (int) $request->get_param('campaign_id');
+            }
+
+            if ($request->has_param('days') && !empty($request->get_param('days'))) {
+                $filters['days'] = (int) $request->get_param('days');
             }
 
             $prospects = $this->db->get_prospects($filters);

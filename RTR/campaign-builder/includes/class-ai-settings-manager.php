@@ -89,7 +89,7 @@ class CPD_AI_Settings_Manager {
         
         // Otherwise, use the most current known stable model
         // Update this as Gemini releases new models
-        return 'gemini-2.0-flash-exp';
+        return 'gemini-2.5-flash';
     }
 
     /**
@@ -259,7 +259,7 @@ class CPD_AI_Settings_Manager {
         }
 
         $endpoint = sprintf(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=%s',
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s',
             $api_key
         );
 
@@ -304,7 +304,7 @@ class CPD_AI_Settings_Manager {
         return array(
             'success' => true,
             'message' => 'Connection successful',
-            'model' => 'gemini-1.5-pro-latest',
+            'model' => 'gemini-2.5-flash',
         );
     }
 
