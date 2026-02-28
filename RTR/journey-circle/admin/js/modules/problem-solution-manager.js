@@ -48,6 +48,9 @@ class ProblemSolutionManager {
         // Init guards to prevent double-initialization
         this._step5Initializing = false;
 
+        // Track the last step we were on (for save-on-leave logic)
+        this._lastStep = null;
+
         // Bind event handlers
         this.handleIndustryChange = this.handleIndustryChange.bind(this);
         this.handlePrimaryProblemSelect = this.handlePrimaryProblemSelect.bind(this);
@@ -98,6 +101,10 @@ class ProblemSolutionManager {
 
     /**
      * Fetch saved industries for this journey circle
+     * 
+     * FIX: Was hitting /journey-circles/{id}/industries (404).
+     * Now hits GET /journey-circles/{id} and extracts .industries from response.
+     * 
      * @returns {Promise<Array>} Selected industries
      */
     async fetchSavedIndustries() {
@@ -106,7 +113,7 @@ class ProblemSolutionManager {
 
         try {
             const response = await fetch(
-                `${this.options.apiBase}/journey-circles/${journeyCircleId}/industries`,
+                `${this.options.apiBase}/journey-circles/${journeyCircleId}`,
                 {
                     method: 'GET',
                     headers: {
@@ -117,7 +124,7 @@ class ProblemSolutionManager {
             );
 
             if (!response.ok) {
-                throw new Error(`Failed to fetch saved industries: ${response.status}`);
+                throw new Error(`Failed to fetch journey circle: ${response.status}`);
             }
 
             const data = await response.json();
@@ -131,6 +138,11 @@ class ProblemSolutionManager {
 
     /**
      * Save industries to database
+     * 
+     * FIX: Was hitting PUT /journey-circles/{id}/industries (404).
+     * Now hits PUT /journey-circles/{id} with { industries: [...] } body,
+     * which matches the controller's update_item() method.
+     * 
      * @param {Array} industries - Selected industries
      * @returns {Promise<boolean>} Success status
      */
@@ -143,7 +155,7 @@ class ProblemSolutionManager {
 
         try {
             const response = await fetch(
-                `${this.options.apiBase}/journey-circles/${journeyCircleId}/industries`,
+                `${this.options.apiBase}/journey-circles/${journeyCircleId}`,
                 {
                     method: 'PUT',
                     headers: {
@@ -158,6 +170,7 @@ class ProblemSolutionManager {
                 throw new Error(`Failed to save industries: ${response.status}`);
             }
 
+            console.log('[PSManager] Industries saved to database:', industries);
             return true;
 
         } catch (error) {
@@ -740,6 +753,19 @@ class ProblemSolutionManager {
         }
 
         return true;
+    }
+
+    /**
+     * Called when leaving Step 4 — ensures industries are persisted to DB.
+     * The workflow's validateCurrentStep() only checks state, it doesn't
+     * trigger the DB save, so we do it here on step change.
+     */
+    async onLeaveStep4() {
+        const state = this.workflow.getState();
+        const industries = state.industries || [];
+        if (industries.length > 0 && state.journeyCircleId) {
+            await this.saveIndustriesToDatabase(industries);
+        }
     }
 
     // =========================================================================
@@ -1900,9 +1926,19 @@ if (typeof module !== 'undefined' && module.exports) {
             // Listen for step changes to initialize step UI
             // Note: Steps 5, 6, 7 are handled by steps567-manager.js
             $(document).on('jc:stepChanged', function(e, step) {
+                // FIX: Save industries to DB when LEAVING step 4.
+                // The workflow's validateCurrentStep() only checks state,
+                // it never calls saveIndustriesToDatabase(). So we trigger
+                // the DB write here when the user navigates away from step 4.
+                if (psManager._lastStep === 4 && step !== 4) {
+                    psManager.onLeaveStep4();
+                }
+
                 if (step === 4) {
                     psManager.initStep4();
                 }
+
+                psManager._lastStep = step;
             });
 
             // If already on step 4, init immediately
@@ -1910,6 +1946,7 @@ if (typeof module !== 'undefined' && module.exports) {
             if (currentStep === 4) {
                 psManager.initStep4();
             }
+            psManager._lastStep = currentStep;
 
             console.log('ProblemSolutionManager initialized');
         }
