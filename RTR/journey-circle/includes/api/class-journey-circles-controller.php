@@ -91,7 +91,7 @@ class DR_Journey_Circles_Controller extends WP_REST_Controller {
 
         // GET /journey-circles/{id} - Get single journey circle
         // PUT /journey-circles/{id} - Update journey circle
-        register_rest_route( $this->namespace, '/' . $this->rest_base . '/(?P<id>[\d]+)', array(
+        register_rest_route( $this->namespace, '/' . $this->rest_base . '/(?P<id>[\\d]+)', array(
             array(
                 'methods'             => WP_REST_Server::READABLE,
                 'callback'            => array( $this, 'get_item' ),
@@ -241,6 +241,10 @@ class DR_Journey_Circles_Controller extends WP_REST_Controller {
     /**
      * Update a journey circle.
      *
+     * FIX: Removed wp_set_object_terms() for industries. Industries are string
+     * arrays like "Agriculture|Crop Farming" — absint() on these returns 0,
+     * corrupting the taxonomy. Post meta handles storage correctly.
+     *
      * @param WP_REST_Request $request
      * @return WP_REST_Response|WP_Error
      */
@@ -265,9 +269,10 @@ class DR_Journey_Circles_Controller extends WP_REST_Controller {
         if ( $request->has_param( 'industries' ) ) {
             $industries = $request->get_param( 'industries' );
             update_post_meta( $id, '_jc_industries', $industries );
-            if ( ! empty( $industries ) ) {
-                wp_set_object_terms( $id, array_map( 'absint', $industries ), 'jc_industry' );
-            }
+            // Note: We no longer sync to taxonomy terms.
+            // absint() on strings like "Agriculture|Crop Farming" returns 0,
+            // which corrupted the jc_industry taxonomy. Post meta is the
+            // authoritative source for industry data.
             $updated = true;
         }
 

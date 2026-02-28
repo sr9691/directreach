@@ -388,13 +388,19 @@
 
         /**
          * Load journey circle data into state
+         *
+         * FIX: Only overwrite state fields when API returns non-empty data.
+         * Previously this unconditionally set state.industries = journeyCircle.industries,
+         * which overwrote valid localStorage data with empty arrays from the API
+         * (caused by the format_journey_circle PHP bug reading from corrupted taxonomy).
          */
         loadJourneyCircleData(journeyCircle) {
-            // Store journey circle ID
+            // Always store journey circle ID
             this.workflow.updateState('journeyCircleId', journeyCircle.id);
             
-            // Update workflow state with existing journey circle data
-            if (journeyCircle.industries) {
+            // Only overwrite state with API data if it's non-empty.
+            // This prevents empty API responses from wiping valid localStorage data.
+            if (journeyCircle.industries && Array.isArray(journeyCircle.industries) && journeyCircle.industries.length > 0) {
                 this.workflow.updateState('industries', journeyCircle.industries);
             }
             if (journeyCircle.primary_problem_id) {

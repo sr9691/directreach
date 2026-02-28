@@ -68,10 +68,10 @@ class DR_Journey_Circle_Manager {
         // Set status
         wp_set_object_terms( $post_id, $args['status'], 'jc_status' );
         
-        // Set industries as terms
-        if ( ! empty( $args['industries'] ) ) {
-            wp_set_object_terms( $post_id, array_map( 'absint', $args['industries'] ), 'jc_industry' );
-        }
+        // Note: We no longer sync industries to taxonomy terms.
+        // Industries are stored as string arrays (e.g. "Agriculture|Crop Farming")
+        // in _jc_industries post meta. Using absint() on these strings corrupted
+        // the taxonomy, so that code path has been removed.
         
         return $post_id;
     }
@@ -530,6 +530,10 @@ class DR_Journey_Circle_Manager {
     /**
      * Format journey circle data for API response.
      *
+     * FIX: Read industries from _jc_industries post meta instead of jc_industry
+     * taxonomy terms. The taxonomy gets corrupted because absint() on string
+     * values like "Agriculture|Crop Farming" returns 0.
+     *
      * @since 1.0.0
      * @param WP_Post $post Post object.
      * @return array Formatted journey circle data.
@@ -538,13 +542,15 @@ class DR_Journey_Circle_Manager {
         $status_terms = wp_get_object_terms( $post->ID, 'jc_status' );
         $status = ! empty( $status_terms ) && ! is_wp_error( $status_terms ) ? $status_terms[0]->slug : 'incomplete';
         
-        $industry_terms = wp_get_object_terms( $post->ID, 'jc_industry', array( 'fields' => 'ids' ) );
+        // FIX: Read from post meta (stores actual string values correctly)
+        // instead of taxonomy terms (which were corrupted by absint())
+        $industries_meta = get_post_meta( $post->ID, '_jc_industries', true );
         
         return array(
             'id'                 => $post->ID,
             'service_area_id'    => get_post_meta( $post->ID, '_jc_service_area_id', true ),
             'primary_problem_id' => get_post_meta( $post->ID, '_jc_primary_problem_id', true ),
-            'industries'         => ! is_wp_error( $industry_terms ) ? $industry_terms : array(),
+            'industries'         => is_array( $industries_meta ) ? $industries_meta : array(),
             'brain_content'      => get_post_meta( $post->ID, '_jc_brain_content', true ),
             'status'             => $status,
             'problems'           => $this->get_problems( $post->ID ),
