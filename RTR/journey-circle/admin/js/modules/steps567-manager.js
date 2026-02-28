@@ -153,7 +153,8 @@
                         industries: state.industries || [],
                         brain_content: state.brainContent || [],
                         existing_assets: state.existingAssets || [],
-                        force_refresh: forceRefresh
+                        force_refresh: forceRefresh,
+                        previous_titles: forceRefresh ? this.problemSuggestions.map(p => p.title) : []
                     })
                 });
 
@@ -274,7 +275,8 @@
                         industries: state.industries || [],
                         brain_content: state.brainContent || [],
                         existing_assets: state.existingAssets || [],
-                        force_refresh: forceRefresh
+                        force_refresh: forceRefresh,
+                        previous_titles: forceRefresh ? this.problemSuggestions.map(p => p.title) : []
                     })
                 });
 

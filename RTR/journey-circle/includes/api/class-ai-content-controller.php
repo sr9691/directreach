@@ -179,6 +179,7 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             'brain_content'     => $this->sanitize_brain_content_param( $request->get_param( 'brain_content' ) ),
             'existing_assets'   => $this->sanitize_existing_assets_param( $request->get_param( 'existing_assets' ) ),
             'force_refresh'     => (bool) $request->get_param( 'force_refresh' ),
+            'previous_titles'   => $this->sanitize_array_param( $request->get_param( 'previous_titles' ) ),
         );
 
         // Generate titles.
@@ -247,6 +248,7 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             'existing_assets'   => $this->sanitize_existing_assets_param( $request->get_param( 'existing_assets' ) ),
             'industries'        => $this->sanitize_array_param( $request->get_param( 'industries' ) ),
             'force_refresh'     => (bool) $request->get_param( 'force_refresh' ),
+            'exclude_titles'    => $this->sanitize_array_param( $request->get_param( 'exclude_titles' ) ),
         );
 
         // Generate titles.
@@ -419,7 +421,17 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
                 'type'        => 'array',
                 'default'     => array(),
                 'description' => __( 'Array of existing content assets (URLs, files) from Step 3.', 'directreach' ),
+<<<<<<< HEAD
             ),            
+=======
+            ),
+            'previous_titles' => array(
+                'required'    => false,
+                'type'        => 'array',
+                'default'     => array(),
+                'description' => __( 'Previously generated titles to avoid on regeneration.', 'directreach' ),
+            ),
+>>>>>>> cf0726f453a50a07f273f20dc00d17b3253085d8
         );
     }
 
@@ -471,7 +483,17 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
                 'type'        => 'array',
                 'default'     => array(),
                 'description' => __( 'Array of existing content assets for context.', 'directreach' ),
+<<<<<<< HEAD
             ),            
+=======
+            ),
+            'exclude_titles' => array(
+                'required'    => false,
+                'type'        => 'array',
+                'default'     => array(),
+                'description' => __( 'Already-selected solution titles to avoid duplicating.', 'directreach' ),
+            ),
+>>>>>>> cf0726f453a50a07f273f20dc00d17b3253085d8
         );
     }
 
@@ -562,6 +584,10 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
 
         return $sanitized;
     }
+<<<<<<< HEAD
+=======
+
+>>>>>>> cf0726f453a50a07f273f20dc00d17b3253085d8
     /**
      * Sanitize the existing_assets parameter.
      *
@@ -611,7 +637,6 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
                     break;
 
                 default:
-                    // Also accept 'text' type assets
                     $clean_item['value'] = wp_kses_post( $item['value'] ?? '' );
                     break;
             }
@@ -621,7 +646,6 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
 
         return $sanitized;
     }
-
 }
 
 /**
