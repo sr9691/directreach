@@ -334,6 +334,13 @@
                 try {
                     const parsed = JSON.parse(savedState);
                     if (parsed && parsed.clientId) {
+                        // FIX: Normalize offers from [] to {} if needed.
+                        // _defaultState() previously had offers:[] but Step8OfferManager
+                        // expects offers:{} (object keyed by problem ID). Existing
+                        // localStorage entries may have the wrong type.
+                        if (Array.isArray(parsed.offers)) {
+                            parsed.offers = {};
+                        }
                         console.log('[JC Workflow] State loaded from localStorage');
                         return parsed;
                     }
@@ -348,6 +355,9 @@
 
         /**
          * Default empty state object.
+         * 
+         * NOTE: offers must be {} (object keyed by problem ID), NOT [].
+         * Step8OfferManager stores offers as { problemId: [{id, title, url}] }.
          */
         _defaultState() {
             return {
@@ -361,7 +371,7 @@
                 primaryProblemId: null,
                 problems: [],
                 solutions: [],
-                offers: [],
+                offers: {},
                 assets: {},
                 selectedProblems: [],
                 selectedSolutions: {},
@@ -397,6 +407,10 @@
                     // Merge DB state with defaults to ensure all keys exist
                     const dbState = Object.assign(this._defaultState(), data.state_data);
                     dbState.currentStep = data.current_step || dbState.currentStep;
+                    // FIX: Normalize offers from [] to {} if DB had old format
+                    if (Array.isArray(dbState.offers)) {
+                        dbState.offers = {};
+                    }
                     return dbState;
                 }
             } catch (e) {
@@ -704,7 +718,7 @@
             this.state.primaryProblemId = null;
             this.state.problems = [];
             this.state.solutions = [];
-            this.state.offers = [];
+            this.state.offers = {};       // FIX: was [] — must match Step8OfferManager format
             this.state.assets = {};
             this.state.selectedProblems = [];
             this.state.selectedSolutions = {};
