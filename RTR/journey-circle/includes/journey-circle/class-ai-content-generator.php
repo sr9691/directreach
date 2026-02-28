@@ -779,7 +779,14 @@ PROMPT;
         foreach ( $titles as $title ) {
             // Handle {title, rationale} objects from updated prompts.
             if ( is_array( $title ) && isset( $title['title'] ) ) {
-                $t = sanitize_text_field( $title['title'] );
+                $t = $title['title'];
+                // Guard against Gemini returning nested JSON fragments as title values.
+                if ( is_string( $t ) && preg_match( '/^title"\s*:\s*"/', $t ) ) {
+                    // Strip the JSON key prefix: title": "actual title",
+                    $t = preg_replace( '/^title"\s*:\s*"/', '', $t );
+                    $t = rtrim( $t, '",' );
+                }
+                $t = sanitize_text_field( $t );
                 $t = trim( $t, '"\'`' );
                 $t = trim( $t );
 
@@ -801,8 +808,21 @@ PROMPT;
             if ( ! is_string( $title ) ) {
                 continue;
             }
+
+            // Guard: Gemini sometimes returns stringified JSON fragments as title values.
+            // e.g. 'title": "Actual title here",' or 'rationale": "Some text"'
+            if ( preg_match( '/^(title|rationale)"\s*:\s*"(.+)$/s', $title, $frag ) ) {
+                $key = $frag[1];
+                $val = rtrim( $frag[2], '",. ' );
+                if ( $key === 'rationale' ) {
+                    // Skip standalone rationale fragments — they're not titles.
+                    continue;
+                }
+                $title = $val;
+            }
+
             $title = sanitize_text_field( $title );
-            $title = trim( $title, '"\'`' );
+            $title = trim( $title, '"\'\`' );
             $title = trim( $title );
 
             // Skip empty or too-short titles.
