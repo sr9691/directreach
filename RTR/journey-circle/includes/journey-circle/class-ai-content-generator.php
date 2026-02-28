@@ -142,6 +142,7 @@ class DR_AI_Content_Generator {
             'service_area_name' => '',
             'industries'        => array(),
             'brain_content'     => array(),
+            'existing_assets'   => array(),
             'force_refresh'     => false,
         );
         $args = wp_parse_args( $args, $defaults );
@@ -226,9 +227,11 @@ class DR_AI_Content_Generator {
             'problem_title'     => '',
             'service_area_name' => '',
             'brain_content'     => array(),
+            'existing_assets'   => array(),
             'industries'        => array(),
             'force_refresh'     => false,
         );
+
         $args = wp_parse_args( $args, $defaults );
 
         // Validate inputs.
@@ -326,9 +329,10 @@ class DR_AI_Content_Generator {
      * @return string The constructed prompt.
      */
     private function build_problem_titles_prompt( $args ) {
-        $brain_summary = $this->summarize_brain_content( $args['brain_content'] );
-        $industries    = $this->format_industries( $args['industries'] );
-        $service_area  = sanitize_text_field( $args['service_area_name'] );
+        $brain_summary  = $this->summarize_brain_content( $args['brain_content'] );
+        $assets_summary = $this->summarize_existing_assets( $args['existing_assets'] ?? array() );
+        $industries     = $this->format_industries( $args['industries'] );
+        $service_area   = sanitize_text_field( $args['service_area_name'] );
 
         $prompt = <<<PROMPT
 You are an expert content marketing strategist specializing in B2B and service-based industries.
@@ -340,6 +344,8 @@ CONTEXT:
 - Target Industries: {$industries}
 - Source Material (Brain Content):
 {$brain_summary}
+- Existing Content Assets:
+{$assets_summary}
 
 REQUIREMENTS FOR PROBLEM TITLES:
 1. Each title should describe a specific, painful problem that the target audience faces
@@ -384,10 +390,11 @@ PROMPT;
      * @return string The constructed prompt.
      */
     private function build_solution_titles_prompt( $args ) {
-        $brain_summary = $this->summarize_brain_content( $args['brain_content'] );
-        $problem_title = sanitize_text_field( $args['problem_title'] );
-        $service_area  = sanitize_text_field( $args['service_area_name'] );
-        $industries    = $this->format_industries( $args['industries'] );
+        $brain_summary  = $this->summarize_brain_content( $args['brain_content'] );
+        $assets_summary = $this->summarize_existing_assets( $args['existing_assets'] ?? array() );
+        $problem_title  = sanitize_text_field( $args['problem_title'] );
+        $service_area   = sanitize_text_field( $args['service_area_name'] );
+        $industries     = $this->format_industries( $args['industries'] );
 
         $prompt = <<<PROMPT
 You are an expert content marketing strategist specializing in B2B and service-based industries.
@@ -402,6 +409,8 @@ CONTEXT:
 - Target Industries: {$industries}
 - Source Material (Brain Content):
 {$brain_summary}
+- Existing Content Assets:
+{$assets_summary}
 
 REQUIREMENTS FOR SOLUTION TITLES:
 1. Each title should present a clear, actionable solution approach to the stated problem
@@ -847,6 +856,82 @@ PROMPT;
         return $header . "\n" . $summary;
     }
 
+/**
+     * Summarize existing content assets into a readable string for prompts.
+     *
+     * Existing assets are content the client already has (blog posts, whitepapers,
+     * landing pages, uploaded files) from Step 3 of the Journey Circle workflow.
+     * Including them helps the AI avoid duplicating existing content and instead
+     * generate complementary problem/solution titles.
+     *
+     * @param array $existing_assets Array of existing asset items.
+     * @return string Summarized text.
+     */
+    private function summarize_existing_assets( $existing_assets ) {
+        if ( empty( $existing_assets ) || ! is_array( $existing_assets ) ) {
+            return '(No existing content assets provided)';
+        }
+
+        $parts     = array();
+        $url_count  = 0;
+        $file_count = 0;
+
+        foreach ( $existing_assets as $item ) {
+            if ( ! is_array( $item ) ) {
+                continue;
+            }
+
+            $type  = isset( $item['type'] ) ? $item['type'] : '';
+            $name  = isset( $item['name'] ) ? sanitize_text_field( $item['name'] ) : '';
+            $value = isset( $item['value'] ) ? $item['value'] : '';
+
+            switch ( $type ) {
+                case 'url':
+                    $url_count++;
+                    $display = $name ? $name : esc_url( $value );
+                    $parts[] = '- Existing content URL: ' . $display . ( $name && $value ? ' (' . esc_url( $value ) . ')' : '' );
+                    break;
+
+                case 'file':
+                    $file_count++;
+                    $filename = $name ? $name : ( isset( $item['filename'] ) ? sanitize_file_name( $item['filename'] ) : $value );
+                    $mime     = isset( $item['mimeType'] ) ? sanitize_text_field( $item['mimeType'] ) : '';
+                    $parts[]  = '- Existing file: ' . $filename . ( $mime ? ' (' . $mime . ')' : '' );
+                    break;
+
+                default:
+                    // text or other types
+                    if ( ! empty( $value ) ) {
+                        $text = wp_strip_all_tags( $value );
+                        if ( strlen( $text ) > 500 ) {
+                            $text = substr( $text, 0, 500 ) . '... (truncated)';
+                        }
+                        $parts[] = '- Existing content: ' . $text;
+                    }
+                    break;
+            }
+        }
+
+        if ( empty( $parts ) ) {
+            return '(No usable existing content assets)';
+        }
+
+        $summary = implode( "\n", $parts );
+
+        // Add count summary header.
+        $counts = array();
+        if ( $url_count > 0 ) {
+            $counts[] = sprintf( '%d existing URL%s', $url_count, $url_count > 1 ? 's' : '' );
+        }
+        if ( $file_count > 0 ) {
+            $counts[] = sprintf( '%d existing file%s', $file_count, $file_count > 1 ? 's' : '' );
+        }
+
+        $header = 'Existing content assets: ' . ( ! empty( $counts ) ? implode( ', ', $counts ) : 'see below' );
+
+        return $header . "\n" . $summary;
+    }    
+
     /**
      * Format industries array into a readable string for prompts.
      *
@@ -898,11 +983,15 @@ PROMPT;
                 $key_data['sa']         = $args['service_area_id'] ?? $args['service_area_name'] ?? '';
                 $key_data['industries'] = is_array( $args['industries'] ) ? implode( ',', $args['industries'] ) : '';
                 $key_data['brain']      = $this->hash_brain_content( $args['brain_content'] ?? array() );
+                $key_data['assets']     = $this->hash_brain_content( $args['existing_assets'] ?? array() );
+
                 break;
 
             case 'solution_titles':
                 $key_data['problem'] = $args['problem_title'] ?? '';
                 $key_data['brain']   = $this->hash_brain_content( $args['brain_content'] ?? array() );
+                $key_data['assets']  = $this->hash_brain_content( $args['existing_assets'] ?? array() );
+
                 break;
         }
 

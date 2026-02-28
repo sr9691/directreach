@@ -155,6 +155,7 @@
                     service_area_name: params.serviceAreaName || '',
                     industries: params.industries || [],
                     brain_content: params.brainContent || [],
+                    existing_assets: params.existingAssets || [],
                     force_refresh: params.forceRefresh || false
                 }, 'problemTitles');
 
@@ -815,6 +816,7 @@
                 serviceAreaName: this.workflow.serviceAreaName || '',
                 industries: this.workflow.industries || [],
                 brainContent: this.workflow.brainContent || [],
+                existingAssets: this.workflow.existingAssets || [],
                 forceRefresh
             };
 

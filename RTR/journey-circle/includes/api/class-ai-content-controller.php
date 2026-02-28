@@ -177,6 +177,7 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             'service_area_name' => sanitize_text_field( $request->get_param( 'service_area_name' ) ?? '' ),
             'industries'        => $this->sanitize_array_param( $request->get_param( 'industries' ) ),
             'brain_content'     => $this->sanitize_brain_content_param( $request->get_param( 'brain_content' ) ),
+            'existing_assets'   => $this->sanitize_existing_assets_param( $request->get_param( 'existing_assets' ) ),
             'force_refresh'     => (bool) $request->get_param( 'force_refresh' ),
         );
 
@@ -243,6 +244,7 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             'problem_title'     => sanitize_text_field( $request->get_param( 'problem_title' ) ),
             'service_area_name' => sanitize_text_field( $request->get_param( 'service_area_name' ) ?? '' ),
             'brain_content'     => $this->sanitize_brain_content_param( $request->get_param( 'brain_content' ) ),
+            'existing_assets'   => $this->sanitize_existing_assets_param( $request->get_param( 'existing_assets' ) ),
             'industries'        => $this->sanitize_array_param( $request->get_param( 'industries' ) ),
             'force_refresh'     => (bool) $request->get_param( 'force_refresh' ),
         );
@@ -412,6 +414,12 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
                 'default'     => false,
                 'description' => __( 'Skip cache and generate fresh titles.', 'directreach' ),
             ),
+            'existing_assets' => array(
+                'required'    => false,
+                'type'        => 'array',
+                'default'     => array(),
+                'description' => __( 'Array of existing content assets (URLs, files) from Step 3.', 'directreach' ),
+            ),            
         );
     }
 
@@ -458,6 +466,12 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
                 'default'     => false,
                 'description' => __( 'Skip cache and generate fresh titles.', 'directreach' ),
             ),
+            'existing_assets' => array(
+                'required'    => false,
+                'type'        => 'array',
+                'default'     => array(),
+                'description' => __( 'Array of existing content assets for context.', 'directreach' ),
+            ),            
         );
     }
 
@@ -548,6 +562,66 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
 
         return $sanitized;
     }
+    /**
+     * Sanitize the existing_assets parameter.
+     *
+     * Existing assets follow a similar structure to brain content:
+     * {type: 'url'|'file', value: '...', name: '...', mimeType: '...'}
+     *
+     * @param mixed $param Raw parameter value.
+     * @return array Sanitized assets array.
+     */
+    private function sanitize_existing_assets_param( $param ) {
+        if ( empty( $param ) ) {
+            return array();
+        }
+
+        if ( is_string( $param ) ) {
+            $param = json_decode( $param, true );
+            if ( json_last_error() !== JSON_ERROR_NONE ) {
+                return array();
+            }
+        }
+
+        if ( ! is_array( $param ) ) {
+            return array();
+        }
+
+        $sanitized = array();
+        foreach ( $param as $item ) {
+            if ( ! is_array( $item ) || ! isset( $item['type'] ) ) {
+                continue;
+            }
+
+            $type = sanitize_text_field( $item['type'] );
+            $clean_item = array(
+                'type' => $type,
+                'name' => sanitize_text_field( $item['name'] ?? '' ),
+            );
+
+            switch ( $type ) {
+                case 'url':
+                    $clean_item['value'] = esc_url_raw( $item['value'] ?? '' );
+                    break;
+
+                case 'file':
+                    $clean_item['value']    = sanitize_file_name( $item['value'] ?? '' );
+                    $clean_item['mimeType'] = sanitize_mime_type( $item['mimeType'] ?? '' );
+                    $clean_item['fileId']   = absint( $item['fileId'] ?? 0 );
+                    break;
+
+                default:
+                    // Also accept 'text' type assets
+                    $clean_item['value'] = wp_kses_post( $item['value'] ?? '' );
+                    break;
+            }
+
+            $sanitized[] = $clean_item;
+        }
+
+        return $sanitized;
+    }
+
 }
 
 /**

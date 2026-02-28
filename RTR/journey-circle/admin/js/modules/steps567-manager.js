@@ -152,6 +152,7 @@
                         service_area_name: '',
                         industries: state.industries || [],
                         brain_content: state.brainContent || [],
+                        existing_assets: state.existingAssets || [],
                         force_refresh: forceRefresh
                     })
                 });
@@ -272,6 +273,7 @@
                         service_area_name: '',
                         industries: state.industries || [],
                         brain_content: state.brainContent || [],
+                        existing_assets: state.existingAssets || [],
                         force_refresh: forceRefresh
                     })
                 });
@@ -460,8 +462,8 @@
                             service_area_name: '',
                             industries: state.industries || [],
                             brain_content: state.brainContent || [],
+                            existing_assets: state.existingAssets || [],
                             force_refresh: forceRefresh,
-                            // *** FIX #4: Send already-selected titles so AI avoids duplicates ***
                             exclude_titles: Object.values(this.selectedSolutions).filter(Boolean)
                         })
                     });
