@@ -104,6 +104,66 @@ class Email_Generation_Controller extends WP_REST_Controller {
             ),
         ));
 
+        // Store externally-generated email (CIS pipeline)
+        register_rest_route( $this->namespace, '/' . $this->rest_base . '/store-external', array(
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => array( $this, 'store_external_email' ),
+            'permission_callback' => array( $this, 'generate_permissions_check' ),
+            'args' => array(
+                'prospect_id' => array(
+                    'required' => true,
+                    'type' => 'integer',
+                    'description' => 'The actual prospect ID (rtr_prospects.id), NOT visitor_id',
+                    'validate_callback' => function( $param ) {
+                        return is_numeric( $param ) && $param > 0;
+                    },
+                ),
+                'room_type' => array(
+                    'required' => true,
+                    'type' => 'string',
+                    'enum' => array( 'problem', 'solution', 'offer' ),
+                ),
+                'email_number' => array(
+                    'required' => true,
+                    'type' => 'integer',
+                    'validate_callback' => function( $param ) {
+                        return is_numeric( $param ) && $param >= 1 && $param <= 5;
+                    },
+                ),
+                'subject' => array(
+                    'required' => true,
+                    'type' => 'string',
+                    'sanitize_callback' => 'sanitize_text_field',
+                ),
+                'body_html' => array(
+                    'required' => true,
+                    'type' => 'string',
+                ),
+                'body_text' => array(
+                    'required' => false,
+                    'type' => 'string',
+                    'default' => '',
+                ),
+                'url_included' => array(
+                    'required' => false,
+                    'type' => 'string',
+                    'format' => 'uri',
+                    'default' => null,
+                ),
+                'ai_prompt_tokens' => array(
+                    'required' => false,
+                    'type' => 'integer',
+                    'default' => 0,
+                ),
+                'ai_completion_tokens' => array(
+                    'required' => false,
+                    'type' => 'integer',
+                    'default' => 0,
+                ),
+            ),
+        ));
+
+
         // Track copy (mark as sent)
         register_rest_route( $this->namespace, '/' . $this->rest_base . '/track-copy', array(
             'methods' => WP_REST_Server::CREATABLE,
@@ -693,6 +753,189 @@ class Email_Generation_Controller extends WP_REST_Controller {
 
         return $this->return_tracking_pixel();
     }
+
+    /**
+     * Store an externally-generated email (from CIS pipeline)
+     *
+     * Accepts pre-generated email content and stores it in rtr_email_tracking
+     * exactly like generate_email() does, minus the PHP AI generation step.
+     *
+     * Reuses: generate_tracking_token(), inject_tracking_pixel(),
+     *         create_tracking_record(), email_states update pattern
+     *
+     * Key difference from generate_email():
+     *   - Accepts prospect_id (rtr_prospects.id), NOT visitor_id
+     *   - Does not call CPD_AI_Email_Generator
+     *   - Sets generated_by_ai = 1 with source marker
+     *
+     * @param WP_REST_Request $request Request object
+     * @return WP_REST_Response|WP_Error
+     */
+    public function store_external_email( $request ) {
+        global $wpdb;
+
+        // Extract parameters — prospect_id here is the ACTUAL prospect ID
+        $prospect_id  = absint( $request->get_param( 'prospect_id' ) );
+        $room_type    = sanitize_text_field( $request->get_param( 'room_type' ) );
+        $email_number = absint( $request->get_param( 'email_number' ) );
+        $subject      = $request->get_param( 'subject' );
+        $body_html    = $request->get_param( 'body_html' );
+        $body_text    = $request->get_param( 'body_text' );
+        $url_included = $request->get_param( 'url_included' );
+        $prompt_tokens     = absint( $request->get_param( 'ai_prompt_tokens' ) );
+        $completion_tokens = absint( $request->get_param( 'ai_completion_tokens' ) );
+
+        $prospects_table = $wpdb->prefix . 'rtr_prospects';
+
+        // Validate prospect exists (lookup by actual prospect ID, not visitor_id)
+        $prospect = $wpdb->get_row( $wpdb->prepare(
+            "SELECT id, visitor_id, campaign_id, email_states
+             FROM {$prospects_table}
+             WHERE id = %d AND archived_at IS NULL",
+            $prospect_id
+        ) );
+
+        if ( ! $prospect ) {
+            return new WP_Error(
+                'prospect_not_found',
+                __( 'Prospect not found or has been archived.', 'directreach' ),
+                array( 'status' => 404 )
+            );
+        }
+
+        // Parse email states
+        $email_states = json_decode( $prospect->email_states, true );
+        if ( ! is_array( $email_states ) ) {
+            $email_states = array();
+        }
+
+        $state_key = "{$room_type}_{$email_number}";
+
+        // Store original state for rollback
+        $original_state = $email_states[ $state_key ] ?? 'pending';
+
+        // Check if already ready (don't overwrite unless forced)
+        // CIS should handle force logic on its side; here we always allow overwrite
+        // since CIS has already done the generation work
+
+        // Set state to pending during storage
+        $email_states[ $state_key ] = 'pending';
+        $wpdb->update(
+            $prospects_table,
+            array( 'email_states' => wp_json_encode( $email_states ) ),
+            array( 'id' => $prospect_id ),
+            array( '%s' ),
+            array( '%d' )
+        );
+
+        try {
+            // Generate tracking token (reuses existing method)
+            $tracking_token = $this->generate_tracking_token();
+
+            // Fall back body_text to stripped HTML if not provided
+            if ( empty( $body_text ) ) {
+                $body_text = strip_tags( $body_html );
+            }
+
+            // Prepare tracking data — same schema as generate_email()
+            $tracking_data = array(
+                'prospect_id'          => $prospect_id,
+                'visitor_id'           => (int) $prospect->visitor_id,
+                'room_type'            => $room_type,
+                'email_number'         => $email_number,
+                'subject'              => $subject,
+                'body_html'            => $this->inject_tracking_pixel( $body_html, $tracking_token ),
+                'body_text'            => $body_text,
+                'tracking_token'       => $tracking_token,
+                'status'               => 'generated',
+                'generated_by_ai'      => 1,
+                'url_included'         => $url_included,
+                'template_used'        => null,  // CIS doesn't use WP templates
+                'ai_prompt_tokens'     => $prompt_tokens,
+                'ai_completion_tokens' => $completion_tokens,
+            );
+
+            // Create tracking record (reuses existing tracking manager)
+            $tracking_id = $this->tracking->create_tracking_record( $tracking_data );
+
+            if ( ! $tracking_id ) {
+                error_log( sprintf(
+                    '[DirectReach CIS] Failed to create tracking record for prospect %d, email %s_%d. DB error: %s',
+                    $prospect_id,
+                    $room_type,
+                    $email_number,
+                    $wpdb->last_error ?: 'none'
+                ) );
+                throw new \Exception( 'Failed to create tracking record.' );
+            }
+
+            // Set state to ready (same pattern as generate_email)
+            $email_states[ $state_key ] = 'ready';
+            $wpdb->update(
+                $prospects_table,
+                array( 'email_states' => wp_json_encode( $email_states ) ),
+                array( 'id' => $prospect_id ),
+                array( '%s' ),
+                array( '%d' )
+            );
+
+            error_log( sprintf(
+                '[DirectReach CIS] Stored external email: prospect=%d, %s_%d, tracking_id=%d',
+                $prospect_id,
+                $room_type,
+                $email_number,
+                $tracking_id
+            ) );
+
+            // Return success — same shape as generate_email() for consistency
+            return rest_ensure_response( array(
+                'success' => true,
+                'cached'  => false,
+                'source'  => 'cis',
+                'data'    => array(
+                    'id'                 => $tracking_id,
+                    'email_tracking_id'  => $tracking_id,
+                    'tracking_token'     => $tracking_token,
+                    'subject'            => $subject,
+                    'body_html'          => $body_html,
+                    'body_text'          => $body_text,
+                    'email_number'       => $email_number,
+                    'room_type'          => $room_type,
+                    'url_included'       => $url_included,
+                    'tokens_used'        => array(
+                        'prompt_tokens'     => $prompt_tokens,
+                        'completion_tokens' => $completion_tokens,
+                    ),
+                ),
+            ) );
+
+        } catch ( \Exception $e ) {
+            // Rollback state
+            $email_states[ $state_key ] = $original_state;
+            $wpdb->update(
+                $prospects_table,
+                array( 'email_states' => wp_json_encode( $email_states ) ),
+                array( 'id' => $prospect_id ),
+                array( '%s' ),
+                array( '%d' )
+            );
+
+            error_log( sprintf(
+                '[DirectReach CIS] store_external_email failed: prospect=%d, %s_%d, error=%s',
+                $prospect_id,
+                $room_type,
+                $email_number,
+                $e->getMessage()
+            ) );
+
+            return new WP_Error(
+                'store_failed',
+                'Failed to store externally-generated email: ' . $e->getMessage(),
+                array( 'status' => 500 )
+            );
+        }
+    }
+
 
     /**
      * Get client IP address
