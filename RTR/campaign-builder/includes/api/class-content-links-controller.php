@@ -689,7 +689,7 @@ class Content_Links_Controller extends REST_Controller {
      *
      * @return bool
      */
-    public function check_permission(WP_REST_Request $request = null): bool|WP_Error {
+    public function check_permissions(WP_REST_Request $request = null): bool|WP_Error {
         error_log('[RTR_AUTH] check_permission called');
         error_log('[RTR_AUTH] request is null: ' . ($request === null ? 'YES' : 'NO'));
         

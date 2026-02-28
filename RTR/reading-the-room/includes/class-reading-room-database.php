@@ -343,7 +343,6 @@ final class Reading_Room_Database
 
         $where[] = 'p.archived_at IS NULL';
         $where[] = '(v.is_archived = 0 OR v.is_archived IS NULL)';
-        $where[] = "v.is_disqualified = 0";
         
         // Minimum threshold filter: exclude prospects where lead_score < minimum_threshold
         // Uses client-specific rules if available, falls back to global rules
