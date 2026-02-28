@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 <?php
 /**
  * AI Content Generator
@@ -161,6 +160,11 @@ class DR_AI_Content_Generator {
             $args['service_area_name'] = $this->get_service_area_name( $args['service_area_id'] );
         }
 
+        // On force refresh, delete cached transient first.
+        if ( $args['force_refresh'] ) {
+            delete_transient( $cache_key );
+        }
+
         // Check cache unless force refresh.
         if ( ! $args['force_refresh'] ) {
             $cache_key = $this->build_cache_key( 'problem_titles', $args );
@@ -241,6 +245,10 @@ class DR_AI_Content_Generator {
                 'missing_problem_title',
                 __( 'Problem title is required to generate solution titles.', 'directreach' )
             );
+        }
+
+        if ( $args['force_refresh'] ) {
+            delete_transient( $cache_key );
         }
 
         // Check cache unless force refresh.
@@ -335,7 +343,24 @@ class DR_AI_Content_Generator {
         $industries     = $this->format_industries( $args['industries'] );
         $service_area   = sanitize_text_field( $args['service_area_name'] );
 
-        $prompt = <<<PROMPT
+        // Build exclusion instruction if previous titles were provided.
+        $exclusion_block = '';
+        if ( ! empty( $args['previous_titles'] ) && is_array( $args['previous_titles'] ) ) {
+            $previous_list = array();
+            foreach ( $args['previous_titles'] as $prev_title ) {
+                $clean = is_array( $prev_title ) ? ( $prev_title['title'] ?? '' ) : $prev_title;
+                $clean = sanitize_text_field( $clean );
+                if ( ! empty( $clean ) ) {
+                    $previous_list[] = '- ' . $clean;
+                }
+            }
+            if ( ! empty( $previous_list ) ) {
+                $exclusion_block = "\n\nIMPORTANT — DO NOT REPEAT OR CLOSELY PARAPHRASE any of these previously generated titles:\n" . implode( "\n", $previous_list ) . "\n\nGenerate completely NEW titles with different angles, perspectives, and phrasing.\n";
+            }
+        }        
+
+
+    $prompt = <<<PROMPT
 You are an expert content marketing strategist specializing in B2B and service-based industries.
 
 TASK: Generate exactly 10 problem titles for a content marketing journey circle.
@@ -347,6 +372,7 @@ CONTEXT:
 {$brain_summary}
 - Existing Content Assets:
 {$assets_summary}
+{$exclusion_block}
 
 REQUIREMENTS FOR PROBLEM TITLES:
 1. Each title should describe a specific, painful problem that the target audience faces
@@ -397,6 +423,22 @@ PROMPT;
         $service_area   = sanitize_text_field( $args['service_area_name'] );
         $industries     = $this->format_industries( $args['industries'] );
 
+        // Build exclusion instruction if exclude_titles were provided.
+        $exclusion_block = '';
+        if ( ! empty( $args['exclude_titles'] ) && is_array( $args['exclude_titles'] ) ) {
+            $exclude_list = array();
+            foreach ( $args['exclude_titles'] as $ex_title ) {
+                $clean = is_array( $ex_title ) ? ( $ex_title['title'] ?? '' ) : $ex_title;
+                $clean = sanitize_text_field( $clean );
+                if ( ! empty( $clean ) ) {
+                    $exclude_list[] = '- ' . $clean;
+                }
+            }
+            if ( ! empty( $exclude_list ) ) {
+                $exclusion_block = "\n\nIMPORTANT — DO NOT REPEAT OR CLOSELY PARAPHRASE any of these previously generated solution titles:\n" . implode( "\n", $exclude_list ) . "\n\nGenerate completely NEW solution titles with different strategic angles and phrasing.\n";
+            }
+        }
+
         $prompt = <<<PROMPT
 You are an expert content marketing strategist specializing in B2B and service-based industries.
 
@@ -412,6 +454,7 @@ CONTEXT:
 {$brain_summary}
 - Existing Content Assets:
 {$assets_summary}
+{$exclusion_block}
 
 REQUIREMENTS FOR SOLUTION TITLES:
 1. Each title should present a clear, actionable solution approach to the stated problem
@@ -1626,6 +1669,3 @@ PROMPT;
     }
 
 }
-=======
-PLACEHOLDER
->>>>>>> cf0726f453a50a07f273f20dc00d17b3253085d8

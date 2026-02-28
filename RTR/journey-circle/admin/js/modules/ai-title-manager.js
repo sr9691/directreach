@@ -156,6 +156,7 @@
                     industries: params.industries || [],
                     brain_content: params.brainContent || [],
                     existing_assets: params.existingAssets || [],
+                    previous_titles: this.state.problemTitles.map(t => typeof t === 'object' ? t.title : t),
                     force_refresh: params.forceRefresh || false
                 }, 'problemTitles');
 
@@ -252,6 +253,7 @@
                     service_area_name: params.serviceAreaName || '',
                     brain_content: params.brainContent || [],
                     industries: params.industries || [],
+                    exclude_titles: this.state.solutionTitles.map(t => typeof t === 'object' ? t.title : t),
                     force_refresh: params.forceRefresh || false
                 }, 'solution_' + problemId);
 

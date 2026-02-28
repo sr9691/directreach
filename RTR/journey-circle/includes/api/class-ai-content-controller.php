@@ -421,9 +421,6 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
                 'type'        => 'array',
                 'default'     => array(),
                 'description' => __( 'Array of existing content assets (URLs, files) from Step 3.', 'directreach' ),
-<<<<<<< HEAD
-            ),            
-=======
             ),
             'previous_titles' => array(
                 'required'    => false,
@@ -431,7 +428,6 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
                 'default'     => array(),
                 'description' => __( 'Previously generated titles to avoid on regeneration.', 'directreach' ),
             ),
->>>>>>> cf0726f453a50a07f273f20dc00d17b3253085d8
         );
     }
 
@@ -483,9 +479,6 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
                 'type'        => 'array',
                 'default'     => array(),
                 'description' => __( 'Array of existing content assets for context.', 'directreach' ),
-<<<<<<< HEAD
-            ),            
-=======
             ),
             'exclude_titles' => array(
                 'required'    => false,
@@ -493,7 +486,6 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
                 'default'     => array(),
                 'description' => __( 'Already-selected solution titles to avoid duplicating.', 'directreach' ),
             ),
->>>>>>> cf0726f453a50a07f273f20dc00d17b3253085d8
         );
     }
 
@@ -584,10 +576,6 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
 
         return $sanitized;
     }
-<<<<<<< HEAD
-=======
-
->>>>>>> cf0726f453a50a07f273f20dc00d17b3253085d8
     /**
      * Sanitize the existing_assets parameter.
      *
