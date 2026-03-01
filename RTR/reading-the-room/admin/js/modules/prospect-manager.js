@@ -130,6 +130,14 @@ export default class ProspectManager {
                 this.handleEmailHistoryClick(visitorId, room);
             }
 
+            // Batch generate button
+            const batchBtn = e.target.closest('.rtr-batch-generate-btn');
+            if (batchBtn) {
+                e.preventDefault();
+                const room = batchBtn.dataset.room;
+                this.handleBatchGenerate(room, batchBtn);
+            }            
+
             // Edit contact button
 
             // Event Delegation - Lead Score Click
@@ -785,6 +793,133 @@ export default class ProspectManager {
         
         return date.toLocaleDateString();
     }
+
+    /**
+     * Handle batch email generation for all prospects in a room.
+     * Calls WordPress PHP endpoint which proxies to CIS server.
+     *
+     * @param {string} room - Room type (problem/solution/offer)
+     * @param {HTMLElement} button - The clicked button element
+     */
+    async handleBatchGenerate(room, button) {
+        // Prevent double-clicks
+        if (button.disabled) return;
+
+        // Confirm with user
+        if (this.uiManager) {
+            const prospectCount = this.pagination[room]?.totalCount || this.prospects[room]?.length || 0;
+            const confirmed = await this.uiManager.confirmAction(
+                'Generate Emails',
+                `Generate the next email for all eligible prospects in the ${room} room? (${prospectCount} prospects total)\n\nThis may take several minutes depending on the number of prospects.`,
+                'Generate',
+                'Cancel'
+            );
+            if (!confirmed) return;
+        }
+
+        // Disable button and show loading state
+        const originalHTML = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+        button.classList.add('rtr-batch-generating');
+
+        // Show notification
+        if (this.uiManager) {
+            this.uiManager.notify(
+                `Generating emails for ${room} room prospects. This may take a few minutes...`,
+                'info'
+            );
+        }
+
+        try {
+            // Build API URL - use emailApiUrl from config (directreach/v2)
+            let baseUrl = this.config?.emailApiUrl || '';
+            if (!baseUrl) {
+                // Fallback: derive from apiUrl
+                baseUrl = this.apiUrl;
+                if (baseUrl.includes('/wp-json')) {
+                    baseUrl = baseUrl.split('/wp-json')[0];
+                }
+                baseUrl = `${baseUrl}/wp-json/directreach/v2`;
+            }
+
+            const apiEndpoint = `${baseUrl}/emails/batch-generate-cis`;
+
+            // Get current client filter if any
+            const clientFilter = document.getElementById('client-select');
+            const clientId = clientFilter?.value ? parseInt(clientFilter.value, 10) : 0;
+
+            const response = await fetch(apiEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-WP-Nonce': this.nonce
+                },
+                body: JSON.stringify({
+                    room_type: room,
+                    client_id: clientId,
+                })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                let errorMsg;
+                try {
+                    const errorData = JSON.parse(errorText);
+                    errorMsg = errorData.message || errorData.data?.message || `Server error: ${response.status}`;
+                } catch {
+                    errorMsg = `Server error: ${response.status}`;
+                }
+                throw new Error(errorMsg);
+            }
+
+            const data = await response.json();
+
+            if (!data.success) {
+                throw new Error(data.message || 'Batch generation failed');
+            }
+
+            // Show results summary
+            const summary = data.summary || {};
+            const generated = summary.generated || 0;
+            const skipped = summary.skipped || 0;
+            const failed = summary.failed || 0;
+
+            let notifType = 'success';
+            let notifMsg = `Batch complete: ${generated} generated`;
+            if (skipped > 0) notifMsg += `, ${skipped} skipped`;
+            if (failed > 0) {
+                notifMsg += `, ${failed} failed`;
+                notifType = generated > 0 ? 'warning' : 'error';
+            }
+
+            if (this.uiManager) {
+                this.uiManager.notify(notifMsg, notifType);
+            }
+
+            // Refresh the room to show updated email button states
+            await this.loadRoomProspects(room);
+
+            // Log detailed results
+            console.log(`[BatchGenerate] ${room} room results:`, data.results);
+
+        } catch (error) {
+            console.error(`Batch generation failed for ${room} room:`, error);
+
+            if (this.uiManager) {
+                this.uiManager.notify(
+                    `Batch generation failed: ${error.message}`,
+                    'error'
+                );
+            }
+        } finally {
+            // Restore button
+            button.disabled = false;
+            button.innerHTML = originalHTML;
+            button.classList.remove('rtr-batch-generating');
+        }
+    }
+
 
     /**
      * Handle email button click - route based on state

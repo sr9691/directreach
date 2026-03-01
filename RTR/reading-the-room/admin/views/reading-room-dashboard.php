@@ -72,6 +72,7 @@ wp_localize_script(
         'restUrl'      => esc_url(rest_url('directreach/v1/reading-room')), // change to v1/reading-room
         'apiUrl'       => esc_url(rest_url('directreach/v1/reading-room')),
         'emailApiUrl'  => esc_url(rest_url('directreach/v2')),              // for email endpoints
+        'cisApiUrl'    => esc_url(get_option('directreach_cis_server_url', '')),
         'ajaxUrl'      => admin_url('admin-ajax.php'),
         'userId'       => get_current_user_id(),
         'userIsAdmin'  => current_user_can('manage_options'),
@@ -226,7 +227,11 @@ if (!is_array($clients)) {
                     <div id="rtr-room-problem" class="room-detail-container">
                         <div class="room-detail-header">
                             <h3><i class="fas fa-exclamation-triangle"></i> Problem Room <span class="room-count-badge">0</span></h3>
-                            <div><select id="problem-room-sort" class="sort-dropdown" data-room="problem">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                            <button class="rtr-batch-generate-btn" data-room="problem" title="Generate next email for all prospects in this room">
+                                <i class="fas fa-magic"></i>
+                            </button>                            
+                            <select id="problem-room-sort" class="sort-dropdown" data-room="problem">
                                 <option value="lead_score_desc">Lead Score (High → Low)</option>
                                 <option value="lead_score_asc">Lead Score (Low → High)</option>
                                 <option value="created_desc">Newest First</option>
@@ -242,7 +247,11 @@ if (!is_array($clients)) {
                     <div id="rtr-room-solution" class="room-detail-container">
                         <div class="room-detail-header">
                             <h3><i class="fas fa-lightbulb"></i> Solution Room <span class="room-count-badge">0</span></h3>
-                            <div><select id="solution-room-sort" class="sort-dropdown" data-room="solution">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                            <button class="rtr-batch-generate-btn" data-room="solution" title="Generate next email for all prospects in this room">
+                                <i class="fas fa-magic"></i>
+                            </button>
+                            <select id="solution-room-sort" class="sort-dropdown" data-room="solution">
                                 <option value="lead_score_desc">Lead Score (High → Low)</option>
                                 <option value="lead_score_asc">Lead Score (Low → High)</option>
                                 <option value="created_desc">Newest First</option>
@@ -257,7 +266,11 @@ if (!is_array($clients)) {
                     <div id="rtr-room-offer" class="room-detail-container">
                         <div class="room-detail-header">
                             <h3><i class="fas fa-handshake"></i> Offer Room <span class="room-count-badge">0</span></h3>
-                            <div><select id="offer-room-sort" class="sort-dropdown" data-room="offer">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                            <button class="rtr-batch-generate-btn" data-room="offer" title="Generate next email for all prospects in this room">
+                                <i class="fas fa-magic"></i>
+                            </button>                                
+                            <select id="offer-room-sort" class="sort-dropdown" data-room="offer">
                                 <option value="lead_score_desc">Lead Score (High → Low)</option>
                                 <option value="lead_score_asc">Lead Score (Low → High)</option>
                                 <option value="created_desc">Newest First</option>

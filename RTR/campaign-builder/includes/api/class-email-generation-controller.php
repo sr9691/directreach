@@ -266,6 +266,32 @@ class Email_Generation_Controller extends WP_REST_Controller {
                     },
                 ),
             ),
+        ));
+        
+        // Batch generate via CIS for all prospects in a room
+        register_rest_route( $this->namespace, '/' . $this->rest_base . '/batch-generate-cis', array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => array( $this, 'batch_generate_cis' ),
+            'permission_callback' => array( $this, 'generate_permissions_check' ),
+            'args'                => array(
+                'room_type' => array(
+                    'required'          => true,
+                    'type'              => 'string',
+                    'enum'              => array( 'problem', 'solution', 'offer' ),
+                ),
+                'campaign_id' => array(
+                    'required'          => false,
+                    'type'              => 'integer',
+                    'default'           => 0,
+                    'description'       => 'Optional campaign filter. 0 = all campaigns.',
+                ),
+                'client_id' => array(
+                    'required'          => false,
+                    'type'              => 'integer',
+                    'default'           => 0,
+                    'description'       => 'Optional client filter. 0 = all clients.',
+                ),
+            ),
         ));        
 
     }
@@ -533,6 +559,439 @@ class Email_Generation_Controller extends WP_REST_Controller {
             );
         }
     }
+
+    /**
+     * Batch generate emails via CIS for all eligible prospects in a room.
+     *
+     * For each prospect in the given room:
+     *   1. Determine the next email number from email_states
+     *   2. Call CIS server to generate + store (CIS handles writeback)
+     *   3. Update local email_states to 'ready' on success
+     *
+     * @param WP_REST_Request $request Request object
+     * @return WP_REST_Response|WP_Error
+     */
+    public function batch_generate_cis( $request ) {
+        global $wpdb;
+
+        $room_type   = sanitize_text_field( $request->get_param( 'room_type' ) );
+        $campaign_id = absint( $request->get_param( 'campaign_id' ) );
+        $client_id   = absint( $request->get_param( 'client_id' ) );
+
+        // Get CIS server URL from wp_options (set in DirectReach settings)
+        $cis_url = get_option( 'directreach_cis_server_url', '' );
+        if ( empty( $cis_url ) ) {
+            return new WP_Error(
+                'cis_not_configured',
+                'CIS server URL is not configured. Set it in DirectReach settings (directreach_cis_server_url).',
+                array( 'status' => 500 )
+            );
+        }
+
+        $prospects_table = $wpdb->prefix . 'rtr_prospects';
+
+        // Build query to get all active prospects in this room
+        $where_clauses = array(
+            "p.current_room = %s",
+            "p.archived_at IS NULL",
+        );
+        $where_values = array( $room_type );
+
+        if ( $campaign_id > 0 ) {
+            $where_clauses[] = "p.campaign_id = %d";
+            $where_values[]  = $campaign_id;
+        }
+
+        if ( $client_id > 0 ) {
+            $where_clauses[] = "c.client_id = %d";
+            $where_values[]  = $client_id;
+        }
+
+        $where_sql = implode( ' AND ', $where_clauses );
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $prospects = $wpdb->get_results( $wpdb->prepare(
+            "SELECT p.id, p.visitor_id, p.campaign_id, p.email_states, 
+                    p.email_sequence_position, p.company_name, p.contact_name
+            FROM {$prospects_table} p
+            INNER JOIN {$wpdb->prefix}dr_campaign_settings c ON p.campaign_id = c.id
+            WHERE {$where_sql}
+            ORDER BY p.lead_score DESC",
+            ...$where_values
+        ) );
+
+        if ( empty( $prospects ) ) {
+            return rest_ensure_response( array(
+                'success' => true,
+                'message' => "No eligible prospects found in {$room_type} room.",
+                'results' => array(),
+                'summary' => array(
+                    'total'     => 0,
+                    'generated' => 0,
+                    'skipped'   => 0,
+                    'failed'    => 0,
+                ),
+            ) );
+        }
+
+        $results   = array();
+        $generated = 0;
+        $skipped   = 0;
+        $failed    = 0;
+
+        foreach ( $prospects as $prospect ) {
+            $prospect_id = (int) $prospect->id;
+            $visitor_id  = (int) $prospect->visitor_id;
+            $camp_id     = (int) $prospect->campaign_id;
+
+            // Parse email_states to find next email number
+            $email_states = json_decode( $prospect->email_states, true );
+            if ( ! is_array( $email_states ) ) {
+                $email_states = array();
+            }
+
+            $next_email_number = $this->get_next_email_number( $email_states, $room_type );
+
+            // Skip if all 5 emails are already generated/sent
+            if ( $next_email_number === null ) {
+                $skipped++;
+                $results[] = array(
+                    'prospect_id' => $prospect_id,
+                    'visitor_id'  => $visitor_id,
+                    'company'     => $prospect->company_name,
+                    'status'      => 'skipped',
+                    'reason'      => 'All emails already generated or sent',
+                );
+                continue;
+            }
+
+            // Skip if next email is already in 'ready' or 'generating' state
+            $state_key    = "{$room_type}_{$next_email_number}";
+            $current_state = $email_states[ $state_key ] ?? 'pending';
+            if ( in_array( $current_state, array( 'ready', 'generating' ), true ) ) {
+                $skipped++;
+                $results[] = array(
+                    'prospect_id'  => $prospect_id,
+                    'visitor_id'   => $visitor_id,
+                    'company'      => $prospect->company_name,
+                    'email_number' => $next_email_number,
+                    'status'       => 'skipped',
+                    'reason'       => "Email {$next_email_number} already in '{$current_state}' state",
+                );
+                continue;
+            }
+
+            // Set email state to 'generating'
+            $email_states[ $state_key ] = 'generating';
+            $wpdb->update(
+                $prospects_table,
+                array( 'email_states' => wp_json_encode( $email_states ) ),
+                array( 'id' => $prospect_id ),
+                array( '%s' ),
+                array( '%d' )
+            );
+
+            // Call CIS server
+            $cis_result = $this->call_cis_generate(
+                $cis_url,
+                $prospect_id,
+                $camp_id
+            );
+
+            if ( is_wp_error( $cis_result ) ) {
+                // Rollback state
+                $email_states[ $state_key ] = $current_state;
+                $wpdb->update(
+                    $prospects_table,
+                    array( 'email_states' => wp_json_encode( $email_states ) ),
+                    array( 'id' => $prospect_id ),
+                    array( '%s' ),
+                    array( '%d' )
+                );
+
+                $failed++;
+                $results[] = array(
+                    'prospect_id'  => $prospect_id,
+                    'visitor_id'   => $visitor_id,
+                    'company'      => $prospect->company_name,
+                    'email_number' => $next_email_number,
+                    'status'       => 'failed',
+                    'reason'       => $cis_result->get_error_message(),
+                );
+
+                error_log( sprintf(
+                    '[DirectReach] CIS batch: Failed for prospect %d: %s',
+                    $prospect_id,
+                    $cis_result->get_error_message()
+                ) );
+
+                continue;
+            }
+
+            // CIS succeeded — check if writeback was successful
+            $writeback_ok = ! empty( $cis_result['writeback_success'] );
+
+            if ( $writeback_ok ) {
+                // CIS already stored the email via store-external endpoint
+                // Update email_states to 'ready'
+                $email_states[ $state_key ] = 'ready';
+                $wpdb->update(
+                    $prospects_table,
+                    array( 'email_states' => wp_json_encode( $email_states ) ),
+                    array( 'id' => $prospect_id ),
+                    array( '%s' ),
+                    array( '%d' )
+                );
+
+                $generated++;
+                $results[] = array(
+                    'prospect_id'  => $prospect_id,
+                    'visitor_id'   => $visitor_id,
+                    'company'      => $prospect->company_name,
+                    'email_number' => $next_email_number,
+                    'status'       => 'generated',
+                    'tracking_id'  => $cis_result['writeback_tracking_id'] ?? null,
+                );
+            } else {
+                // CIS generated email but writeback failed — 
+                // still mark as ready if we got email content back
+                if ( ! empty( $cis_result['generated_email'] ) ) {
+                    // Store it ourselves via the tracking manager
+                    $store_result = $this->store_cis_email_fallback(
+                        $prospect,
+                        $room_type,
+                        $next_email_number,
+                        $cis_result
+                    );
+
+                    if ( $store_result ) {
+                        $email_states[ $state_key ] = 'ready';
+                        $wpdb->update(
+                            $prospects_table,
+                            array( 'email_states' => wp_json_encode( $email_states ) ),
+                            array( 'id' => $prospect_id ),
+                            array( '%s' ),
+                            array( '%d' )
+                        );
+
+                        $generated++;
+                        $results[] = array(
+                            'prospect_id'  => $prospect_id,
+                            'visitor_id'   => $visitor_id,
+                            'company'      => $prospect->company_name,
+                            'email_number' => $next_email_number,
+                            'status'       => 'generated',
+                            'note'         => 'Stored via PHP fallback',
+                        );
+                    } else {
+                        // Complete failure
+                        $email_states[ $state_key ] = 'failed';
+                        $wpdb->update(
+                            $prospects_table,
+                            array( 'email_states' => wp_json_encode( $email_states ) ),
+                            array( 'id' => $prospect_id ),
+                            array( '%s' ),
+                            array( '%d' )
+                        );
+
+                        $failed++;
+                        $results[] = array(
+                            'prospect_id'  => $prospect_id,
+                            'visitor_id'   => $visitor_id,
+                            'company'      => $prospect->company_name,
+                            'email_number' => $next_email_number,
+                            'status'       => 'failed',
+                            'reason'       => 'CIS generated email but storage failed',
+                        );
+                    }
+                } else {
+                    // No email content at all
+                    $email_states[ $state_key ] = 'failed';
+                    $wpdb->update(
+                        $prospects_table,
+                        array( 'email_states' => wp_json_encode( $email_states ) ),
+                        array( 'id' => $prospect_id ),
+                        array( '%s' ),
+                        array( '%d' )
+                    );
+
+                    $failed++;
+                    $results[] = array(
+                        'prospect_id'  => $prospect_id,
+                        'visitor_id'   => $visitor_id,
+                        'company'      => $prospect->company_name,
+                        'email_number' => $next_email_number,
+                        'status'       => 'failed',
+                        'reason'       => $cis_result['error'] ?? 'CIS returned no email content',
+                    );
+                }
+            }
+        }
+
+        error_log( sprintf(
+            '[DirectReach] CIS batch complete: room=%s, total=%d, generated=%d, skipped=%d, failed=%d',
+            $room_type,
+            count( $prospects ),
+            $generated,
+            $skipped,
+            $failed
+        ) );
+
+        return rest_ensure_response( array(
+            'success' => true,
+            'message' => sprintf(
+                'Batch complete: %d generated, %d skipped, %d failed out of %d prospects.',
+                $generated,
+                $skipped,
+                $failed,
+                count( $prospects )
+            ),
+            'results' => $results,
+            'summary' => array(
+                'total'     => count( $prospects ),
+                'generated' => $generated,
+                'skipped'   => $skipped,
+                'failed'    => $failed,
+            ),
+        ) );
+    }    
+
+    /**
+     * Determine the next email number for a prospect.
+     *
+     * Walks through email_states to find the first email that is
+     * in 'pending' or 'failed' state. Emails in 'sent'/'opened'/'ready'
+     * are considered complete.
+     *
+     * @param array  $email_states Parsed email_states JSON
+     * @param string $room_type    Current room type
+     * @return int|null Next email number (1-5) or null if all done
+     */
+    private function get_next_email_number( $email_states, $room_type ) {
+        for ( $i = 1; $i <= 5; $i++ ) {
+            $state_key = "{$room_type}_{$i}";
+            $state     = $email_states[ $state_key ] ?? 'pending';
+
+            // If this email is sent or opened, continue to next
+            if ( in_array( $state, array( 'sent', 'opened', 'copied' ), true ) ) {
+                continue;
+            }
+
+            // If this email is pending or failed, this is the next one to generate
+            if ( in_array( $state, array( 'pending', 'failed' ), true ) ) {
+                return $i;
+            }
+
+            // If 'ready' or 'generating', skip this prospect (already in progress)
+            return null;
+        }
+
+        // All 5 emails are sent/opened
+        return null;
+    }
+
+
+    /**
+     * Call the CIS server to generate an email.
+     *
+     * @param string $cis_url     CIS server base URL
+     * @param int    $prospect_id Prospect ID (actual, not visitor_id)
+     * @param int    $campaign_id Campaign ID
+     * @return array|WP_Error CIS response data or error
+     */
+    private function call_cis_generate( $cis_url, $prospect_id, $campaign_id ) {
+        $endpoint = rtrim( $cis_url, '/' ) . '/webhook/generate-email';
+
+        $body = wp_json_encode( array(
+            'prospect_id' => $prospect_id,
+            'campaign_id' => $campaign_id,
+        ) );
+
+        $response = wp_remote_post( $endpoint, array(
+            'headers' => array(
+                'Content-Type' => 'application/json',
+            ),
+            'body'    => $body,
+            'timeout' => 120, // CIS pipeline can take time (LLM calls)
+        ) );
+
+        if ( is_wp_error( $response ) ) {
+            return new WP_Error(
+                'cis_request_failed',
+                'Failed to reach CIS server: ' . $response->get_error_message()
+            );
+        }
+
+        $status_code = wp_remote_retrieve_response_code( $response );
+        $body_raw    = wp_remote_retrieve_body( $response );
+        $data        = json_decode( $body_raw, true );
+
+        if ( $status_code !== 200 ) {
+            $error_msg = $data['error'] ?? $data['detail'] ?? "CIS returned HTTP {$status_code}";
+            return new WP_Error( 'cis_error', $error_msg );
+        }
+
+        if ( empty( $data ) || ! isset( $data['success'] ) ) {
+            return new WP_Error( 'cis_invalid_response', 'Invalid response from CIS server' );
+        }
+
+        if ( ! $data['success'] ) {
+            return new WP_Error( 'cis_generation_failed', $data['error'] ?? 'CIS generation failed' );
+        }
+
+        return $data;
+    }
+
+
+    /**
+     * Fallback: store CIS-generated email via PHP tracking manager.
+     *
+     * Used when CIS writeback to store-external fails but we still have email content.
+     *
+     * @param object $prospect       Prospect DB row
+     * @param string $room_type      Room type
+     * @param int    $email_number   Email number
+     * @param array  $cis_result     CIS response data
+     * @return int|false Tracking ID or false on failure
+     */
+    private function store_cis_email_fallback( $prospect, $room_type, $email_number, $cis_result ) {
+        try {
+            $tracking_token = $this->generate_tracking_token();
+
+            $subject = $cis_result['selected_content_title'] ?? "A resource for {$prospect->company_name}";
+            $body_html = $cis_result['generated_email'];
+
+            $tracking_data = array(
+                'prospect_id'          => (int) $prospect->id,
+                'visitor_id'           => (int) $prospect->visitor_id,
+                'room_type'            => $room_type,
+                'email_number'         => $email_number,
+                'subject'              => $subject,
+                'body_html'            => $this->inject_tracking_pixel( $body_html, $tracking_token ),
+                'body_text'            => strip_tags( $body_html ),
+                'tracking_token'       => $tracking_token,
+                'status'               => 'generated',
+                'generated_by_ai'      => 1,
+                'url_included'         => $cis_result['selected_content_url'] ?? null,
+                'ai_prompt_tokens'     => 0,
+                'ai_completion_tokens' => 0,
+            );
+
+            $tracking_id = $this->tracking->create_tracking_record( $tracking_data );
+
+            if ( ! $tracking_id ) {
+                error_log( '[DirectReach] CIS fallback storage failed for prospect ' . $prospect->id );
+                return false;
+            }
+
+            return $tracking_id;
+
+        } catch ( \Exception $e ) {
+            error_log( '[DirectReach] CIS fallback storage exception: ' . $e->getMessage() );
+            return false;
+        }
+    }
+
 
     /**
      * Get existing email from tracking if available
