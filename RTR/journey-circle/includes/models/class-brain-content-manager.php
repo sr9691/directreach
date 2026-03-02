@@ -27,6 +27,11 @@ class Brain_Content_Manager {
     const MAX_RAW_FOR_SUMMARY = 15000;
 
     /**
+     * Maximum characters for tone & style profile.
+     */
+    const MAX_TONE_PROFILE_LENGTH = 2000;
+
+    /**
      * Add brain content to a service area.
      *
      * @since 1.0.0
@@ -153,6 +158,7 @@ class Brain_Content_Manager {
                     'type'           => $type,
                     'value'          => $value,
                     'extracted_text' => get_post_meta( $post->ID, '_jc_extracted_text', true ) ?: '',
+                    'tone_style_profile' => get_post_meta( $post->ID, '_jc_tone_style_profile', true ) ?: '',
                     'extraction_status' => get_post_meta( $post->ID, '_jc_extraction_status', true ) ?: 'pending',
                 );
             }
@@ -560,8 +566,12 @@ class Brain_Content_Manager {
     /**
      * Process raw extracted text: summarize if needed, then store.
      *
-     * If text is short enough, store directly. If too long, use Gemini
-     * to create a focused summary suitable for downstream AI prompts.
+     * Performs two-pass AI analysis:
+     * 1. Topical summary — factual content for knowledge base context.
+     * 2. Tone & style profile — voice fingerprint for consistent content generation.
+     *
+     * If text is short enough, store directly without summarization.
+     * The tone profile is always generated via AI regardless of length.
      *
      * @since 2.1.0
      * @param int    $content_id Brain content post ID.
@@ -577,31 +587,128 @@ class Brain_Content_Manager {
             return;
         }
 
-        // If short enough, store directly.
+        // === Pass 1: Topical Summary ===
         if ( strlen( $raw_text ) <= self::SUMMARIZE_THRESHOLD ) {
             $extracted = substr( $raw_text, 0, self::MAX_EXTRACTED_LENGTH );
-            update_post_meta( $content_id, '_jc_extracted_text', $extracted );
-            update_post_meta( $content_id, '_jc_extraction_status', 'completed' );
-            $this->update_brain_content_table( $content_id, $extracted, 'completed' );
-            return;
+        } else {
+            // Too long — summarize via Gemini.
+            $summary = $this->summarize_with_ai( $raw_text );
+
+            if ( is_wp_error( $summary ) || empty( $summary ) ) {
+                // Fallback: truncate intelligently.
+                $extracted = $this->smart_truncate( $raw_text, self::MAX_EXTRACTED_LENGTH );
+            } else {
+                $extracted = substr( $summary, 0, self::MAX_EXTRACTED_LENGTH );
+            }
         }
 
-        // Too long — summarize via Gemini.
-        $summary = $this->summarize_with_ai( $raw_text );
-
-        if ( is_wp_error( $summary ) || empty( $summary ) ) {
-            // Fallback: truncate intelligently.
-            $extracted = $this->smart_truncate( $raw_text, self::MAX_EXTRACTED_LENGTH );
-            update_post_meta( $content_id, '_jc_extracted_text', $extracted );
-            update_post_meta( $content_id, '_jc_extraction_status', 'completed' );
-            $this->update_brain_content_table( $content_id, $extracted, 'completed' );
-            return;
-        }
-
-        $extracted = substr( $summary, 0, self::MAX_EXTRACTED_LENGTH );
         update_post_meta( $content_id, '_jc_extracted_text', $extracted );
+
+        // === Pass 2: Tone & Style Profile ===
+        $tone_profile = $this->extract_tone_profile( $raw_text );
+
+        if ( ! is_wp_error( $tone_profile ) && ! empty( $tone_profile ) ) {
+            $tone_profile = substr( $tone_profile, 0, self::MAX_TONE_PROFILE_LENGTH );
+            update_post_meta( $content_id, '_jc_tone_style_profile', $tone_profile );
+            $this->update_brain_content_table_tone( $content_id, $tone_profile );
+        }
+
+        // Mark extraction complete.
         update_post_meta( $content_id, '_jc_extraction_status', 'completed' );
         $this->update_brain_content_table( $content_id, $extracted, 'completed' );
+    }
+
+    /**
+     * Extract a tone & style profile from content using Gemini AI.
+     *
+     * Produces a compact voice fingerprint (~200-300 words) that captures
+     * the writing style, tone, vocabulary level, rhetorical patterns, and
+     * brand personality. This profile is injected into every downstream
+     * prompt so generated content matches the client's voice.
+     *
+     * @since 2.1.0
+     * @param string $raw_text Raw text to analyze.
+     * @return string|WP_Error Tone profile text or error.
+     */
+    private function extract_tone_profile( $raw_text ) {
+        // Lazy-load the AI generator.
+        if ( ! class_exists( 'DR_AI_Content_Generator' ) ) {
+            $generator_path = plugin_dir_path( dirname( __FILE__ ) ) . 'journey-circle/class-ai-content-generator.php';
+            if ( ! file_exists( $generator_path ) ) {
+                $generator_path = dirname( __FILE__, 2 ) . '/includes/journey-circle/class-ai-content-generator.php';
+            }
+            if ( file_exists( $generator_path ) ) {
+                require_once $generator_path;
+            }
+        }
+
+        if ( ! class_exists( 'DR_AI_Content_Generator' ) ) {
+            return new WP_Error( 'generator_missing', 'AI content generator class not found.' );
+        }
+
+        $generator = new DR_AI_Content_Generator();
+        if ( ! $generator->is_configured() ) {
+            return new WP_Error( 'not_configured', 'Gemini API not configured.' );
+        }
+
+        // Use a representative sample — first 10k chars is plenty for style analysis.
+        $input = substr( $raw_text, 0, 10000 );
+
+        $prompt = <<<PROMPT
+Analyze the following content and produce a concise Voice & Style Profile (200-300 words) that captures how this organization communicates. This profile will be used as a reference to ensure all AI-generated content matches the source's voice.
+
+Your analysis MUST cover each of these dimensions:
+
+1. **Overall Tone:** (e.g., formal/conversational/technical/casual/authoritative/friendly) — describe the primary and secondary tones.
+2. **Vocabulary Level:** (e.g., executive/technical/accessible/jargon-heavy) — note any industry-specific terminology or signature phrases used repeatedly.
+3. **Sentence Structure:** (e.g., short punchy sentences / long complex sentences / mixed) — describe typical rhythm and cadence.
+4. **Point of View:** (e.g., first-person plural "we" / third-person / direct "you" address) — note how the organization refers to itself and its audience.
+5. **Rhetorical Devices:** (e.g., uses questions, uses data/stats, storytelling, analogies, imperative commands, lists) — identify patterns.
+6. **Brand Personality Traits:** (e.g., confident, empathetic, innovative, traditional, provocative, nurturing) — list 3-5 dominant traits.
+7. **Things to Avoid:** Based on the content, note any styles or approaches that would be OFF-brand (e.g., "never uses humor", "avoids technical jargon", "does not use first-person singular").
+
+Write the profile as a dense, usable reference paragraph — NOT as a list. A content writer should be able to read this profile and immediately write in the same voice.
+
+CONTENT TO ANALYZE:
+{$input}
+
+VOICE & STYLE PROFILE:
+PROMPT;
+
+        return $this->call_gemini_for_summary( $generator, $prompt );
+    }
+
+    /**
+     * Update the custom brain content table with tone & style profile.
+     *
+     * @since 2.1.0
+     * @param int    $content_id       Brain content post ID.
+     * @param string $tone_profile     Tone & style profile text.
+     */
+    private function update_brain_content_table_tone( $content_id, $tone_profile ) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'jc_brain_content';
+
+        $has_column = $wpdb->get_var(
+            "SHOW COLUMNS FROM {$table} LIKE 'tone_style_profile'"
+        );
+
+        if ( $has_column ) {
+            $content_type  = get_post_meta( $content_id, '_jc_content_type', true );
+            $service_area  = get_post_meta( $content_id, '_jc_service_area_id', true );
+
+            $wpdb->query(
+                $wpdb->prepare(
+                    "UPDATE {$table}
+                     SET tone_style_profile = %s
+                     WHERE service_area_id = %d AND content_type = %s
+                     ORDER BY id DESC LIMIT 1",
+                    $tone_profile,
+                    absint( $service_area ),
+                    $content_type
+                )
+            );
+        }
     }
 
     /**

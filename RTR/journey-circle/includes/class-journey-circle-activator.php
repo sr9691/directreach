@@ -18,7 +18,7 @@ class Journey_Circle_Activator {
     /**
      * Bump this to trigger migration on next admin load.
      */
-    const DB_VERSION = '2.0.0';
+    const DB_VERSION = '2.1.0';
 
     /**
      * Option key for tracking installed DB schema version.
@@ -171,6 +171,7 @@ class Journey_Circle_Activator {
             content_value LONGTEXT NOT NULL,
             file_path VARCHAR(500),
             extracted_text LONGTEXT,
+            tone_style_profile LONGTEXT,
             extraction_status VARCHAR(20) DEFAULT 'pending',
             processed TINYINT(1) DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

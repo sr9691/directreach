@@ -419,7 +419,7 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             }
 
             // Skip if already has extracted text (e.g., text type with inline content).
-            if ( ! empty( $item['extracted_text'] ) ) {
+            if ( ! empty( $item['extracted_text'] ) && ! empty( $item['tone_style_profile'] ) ) {
                 continue;
             }
 
@@ -435,14 +435,24 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             }
 
             if ( $post_id ) {
-                $extracted = get_post_meta( $post_id, '_jc_extracted_text', true );
-                if ( ! empty( $extracted ) ) {
-                    $item['extracted_text'] = $extracted;
+                if ( empty( $item['extracted_text'] ) ) {
+                    $extracted = get_post_meta( $post_id, '_jc_extracted_text', true );
+                    if ( ! empty( $extracted ) ) {
+                        $item['extracted_text'] = $extracted;
+                    }
+                }
+
+                // Also pull tone & style profile.
+                if ( empty( $item['tone_style_profile'] ) ) {
+                    $tone_profile = get_post_meta( $post_id, '_jc_tone_style_profile', true );
+                    if ( ! empty( $tone_profile ) ) {
+                        $item['tone_style_profile'] = $tone_profile;
+                    }
                 }
             }
 
             // If post exists but hasn't been extracted yet, trigger extraction now.
-            if ( $post_id && empty( $extracted ) ) {
+            if ( $post_id && empty( $item['extracted_text'] ) ) {
                 $status = get_post_meta( $post_id, '_jc_extraction_status', true );
                 if ( empty( $status ) || $status === 'pending' ) {
                     $manager = new Brain_Content_Manager();
@@ -461,6 +471,12 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
                     $extracted = get_post_meta( $post_id, '_jc_extracted_text', true );
                     if ( ! empty( $extracted ) ) {
                         $item['extracted_text'] = $extracted;
+                    }
+
+                    // Also re-read tone profile (generated during extraction).
+                    $tone_profile = get_post_meta( $post_id, '_jc_tone_style_profile', true );
+                    if ( ! empty( $tone_profile ) ) {
+                        $item['tone_style_profile'] = $tone_profile;
                     }
                 }
             }

@@ -365,9 +365,16 @@ class DR_AI_Content_Generator {
      */
     private function build_problem_titles_prompt( $args ) {
         $brain_summary  = $this->summarize_brain_content( $args['brain_content'] );
+        $tone_profile   = $this->get_tone_style_profile( $args['brain_content'] );
         $assets_summary = $this->summarize_existing_assets( $args['existing_assets'] ?? array() );
         $industries     = $this->format_industries( $args['industries'] );
         $service_area   = sanitize_text_field( $args['service_area_name'] );
+
+        // Build tone/voice instruction block.
+        $tone_block = '';
+        if ( ! empty( $tone_profile ) ) {
+            $tone_block = "- **Client Voice & Style (match this tone in all titles):**\n{$tone_profile}\n";
+        }
 
         // Build negative constraints block if previous titles were provided.
         $constraints_block = '';
@@ -395,7 +402,7 @@ Analyze the provided Source Material and generate exactly 10 unique "Problem-Cen
 ### CONTEXT & KNOWLEDGE BASE
 - **Primary Service Area:** {$service_area}
 - **Target Industries:** {$industries}
-- **Core Insights (Brain Content):**
+{$tone_block}- **Core Insights (Brain Content):**
 {$brain_summary}
 - **Existing Content Assets:**
 {$assets_summary}
@@ -468,10 +475,17 @@ PROMPT;
      */
     private function build_solution_titles_prompt( $args ) {
         $brain_summary  = $this->summarize_brain_content( $args['brain_content'] );
+        $tone_profile   = $this->get_tone_style_profile( $args['brain_content'] );
         $assets_summary = $this->summarize_existing_assets( $args['existing_assets'] ?? array() );
         $problem_title  = sanitize_text_field( $args['problem_title'] );
         $service_area   = sanitize_text_field( $args['service_area_name'] );
         $industries     = $this->format_industries( $args['industries'] );
+
+        // Build tone/voice instruction block.
+        $tone_block = '';
+        if ( ! empty( $tone_profile ) ) {
+            $tone_block = "- Client Voice & Style (match this tone):\n{$tone_profile}\n";
+        }
 
         // Build exclusion instruction if exclude_titles were provided.
         $exclusion_block = '';
@@ -500,7 +514,7 @@ PROBLEM BEING SOLVED:
 CONTEXT:
 - Service Area: {$service_area}
 - Target Industries: {$industries}
-- Source Material (Brain Content):
+{$tone_block}- Source Material (Brain Content):
 {$brain_summary}
 - Existing Content Assets:
 {$assets_summary}
@@ -1051,6 +1065,50 @@ PROMPT;
 
         return $header . "\n" . $summary;
     }
+
+    /**
+     * Extract the aggregate tone & style profile from brain content items.
+     *
+     * Collects all tone_style_profile values from brain content items,
+     * deduplicates, and returns a combined profile string. If multiple
+     * brain items have profiles, they are merged into a single block.
+     *
+     * @since 2.1.0
+     * @param array $brain_content Array of brain content items.
+     * @return string Combined tone profile or empty string.
+     */
+    private function get_tone_style_profile( $brain_content ) {
+        if ( empty( $brain_content ) || ! is_array( $brain_content ) ) {
+            return '';
+        }
+
+        $profiles = array();
+        foreach ( $brain_content as $item ) {
+            if ( ! is_array( $item ) ) {
+                continue;
+            }
+            $profile = isset( $item['tone_style_profile'] ) ? trim( $item['tone_style_profile'] ) : '';
+            if ( ! empty( $profile ) ) {
+                $profiles[] = $profile;
+            }
+        }
+
+        if ( empty( $profiles ) ) {
+            return '';
+        }
+
+        // If only one source, return it directly.
+        if ( count( $profiles ) === 1 ) {
+            return $profiles[0];
+        }
+
+        // Multiple sources — combine with labels.
+        $combined = "Combined voice profile from " . count( $profiles ) . " sources:\n";
+        foreach ( $profiles as $i => $profile ) {
+            $combined .= "Source " . ( $i + 1 ) . ": " . $profile . "\n";
+        }
+        return $combined;
+    }
     
     /**
      * Summarize existing content assets into a readable string for prompts.
@@ -1309,11 +1367,18 @@ PROMPT;
         $solution_title = sanitize_text_field( $args['solution_title'] ?? '' );
         $format         = sanitize_text_field( $args['format'] ?? 'article_long' );
         $brain_summary  = $this->summarize_brain_content( $args['brain_content'] ?? array() );
+        $tone_profile   = $this->get_tone_style_profile( $args['brain_content'] ?? array() );
         $industries_str = $this->format_industries( $args['industries'] ?? array() );
         $existing       = $args['existing_outline'] ?? '';
         $feedback       = sanitize_text_field( $args['feedback'] ?? '' );
         $focus          = sanitize_text_field( $args['focus'] ?? '' );
         $focus_instr    = sanitize_text_field( $args['focus_instruction'] ?? '' );
+
+        // Build tone instruction for outline prompts.
+        $tone_instr = '';
+        if ( ! empty( $tone_profile ) ) {
+            $tone_instr = "\nClient Voice & Style (match this tone in all generated content):\n{$tone_profile}\n";
+        }
 
         $format_desc = array(
             'article_long'   => 'a detailed long-form article (1500-2500 words)',
@@ -1369,6 +1434,9 @@ PROMPT;
                 $prompt .= "Target Industries: {$industries_str}\n";
             }
             $prompt .= $focus_angle;
+            if ( ! empty( $tone_instr ) ) {
+                $prompt .= $tone_instr;
+            }
             if ( ! empty( $brain_summary ) ) {
                 $prompt .= "\nContext from client resources:\n{$brain_summary}\n";
             }
@@ -1463,6 +1531,7 @@ PROMPT;
         $format         = sanitize_text_field( $args['format'] ?? 'article_long' );
         $outline        = $args['outline'] ?? '';
         $brain_summary  = $this->summarize_brain_content( $args['brain_content'] ?? array() );
+        $tone_profile   = $this->get_tone_style_profile( $args['brain_content'] ?? array() );
         $industries_str = $this->format_industries( $args['industries'] ?? array() );
         $existing       = $args['existing_content'] ?? '';
         $feedback       = sanitize_text_field( $args['feedback'] ?? '' );
@@ -1479,25 +1548,25 @@ PROMPT;
         // PRESENTATION — slide deck JSON array
         // =====================================================================
         elseif ( $format === 'presentation' ) {
-            $prompt = $this->build_presentation_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline );
+            $prompt = $this->build_presentation_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile );
         }
         // =====================================================================
         // LINKEDIN POST — structured post JSON
         // =====================================================================
         elseif ( $format === 'linkedin_post' ) {
-            $prompt = $this->build_linkedin_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline );
+            $prompt = $this->build_linkedin_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile );
         }
         // =====================================================================
         // INFOGRAPHIC — structured sections with visual elements
         // =====================================================================
         elseif ( $format === 'infographic' ) {
-            $prompt = $this->build_infographic_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline );
+            $prompt = $this->build_infographic_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile );
         }
         // =====================================================================
         // ARTICLE / BLOG POST — structured sections JSON
         // =====================================================================
         else {
-            $prompt = $this->build_article_prompt( $format, $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline );
+            $prompt = $this->build_article_prompt( $format, $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile );
         }
 
         // All formats now use JSON response mode.
@@ -1543,7 +1612,7 @@ PROMPT;
     /**
      * Build article/blog post prompt — returns structured JSON.
      */
-    private function build_article_prompt( $format, $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline ) {
+    private function build_article_prompt( $format, $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile = '' ) {
         $word_counts = array(
             'article_long'  => '1500-2500',
             'article_short' => '500-800',
@@ -1557,6 +1626,9 @@ PROMPT;
         if ( ! empty( $industries_str ) ) {
             $prompt .= "Target audience industries: {$industries_str}\n";
         }
+        if ( ! empty( $tone_profile ) ) {
+            $prompt .= "\nClient Voice & Style (CRITICAL — match this tone throughout):\n{$tone_profile}\n";
+        }
         if ( ! empty( $brain_summary ) ) {
             $prompt .= "\nContext from client resources:\n{$brain_summary}\n";
         }
@@ -1568,7 +1640,11 @@ PROMPT;
         }
 
         $prompt .= "\nRequirements:\n";
-        $prompt .= "- Professional, authoritative tone\n";
+        if ( empty( $tone_profile ) ) {
+            $prompt .= "- Professional, authoritative tone\n";
+        } else {
+            $prompt .= "- Follow the Client Voice & Style profile above — do NOT default to generic corporate tone\n";
+        }
         $prompt .= "- Include specific, actionable advice\n";
         $prompt .= "- Use data points and examples where relevant\n";
         $prompt .= "- Strong introduction and conclusion\n";
@@ -1601,11 +1677,14 @@ PROMPT;
     /**
      * Build LinkedIn post prompt — returns structured JSON.
      */
-    private function build_linkedin_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline ) {
+    private function build_linkedin_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile = '' ) {
         $prompt  = "Write a professional LinkedIn post (200-300 words) and return it as structured JSON.\n\n";
         $prompt .= "Topic/Problem: {$problem_title}\nSolution: {$solution_title}\n";
         if ( ! empty( $industries_str ) ) {
             $prompt .= "Target audience industries: {$industries_str}\n";
+        }
+        if ( ! empty( $tone_profile ) ) {
+            $prompt .= "\nClient Voice & Style (CRITICAL — match this tone throughout):\n{$tone_profile}\n";
         }
         if ( ! empty( $brain_summary ) ) {
             $prompt .= "\nContext from client resources:\n{$brain_summary}\n";
@@ -1640,11 +1719,14 @@ PROMPT;
     /**
      * Build infographic prompt — returns structured sections with visual elements.
      */
-    private function build_infographic_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline ) {
+    private function build_infographic_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile = '' ) {
         $prompt  = "Create content for a professional infographic and return it as structured JSON.\n\n";
         $prompt .= "Topic/Problem: {$problem_title}\nSolution: {$solution_title}\n";
         if ( ! empty( $industries_str ) ) {
             $prompt .= "Target audience industries: {$industries_str}\n";
+        }
+        if ( ! empty( $tone_profile ) ) {
+            $prompt .= "\nClient Voice & Style (match this tone):\n{$tone_profile}\n";
         }
         if ( ! empty( $brain_summary ) ) {
             $prompt .= "\nContext from client resources:\n{$brain_summary}\n";
@@ -1694,12 +1776,15 @@ PROMPT;
      * Build presentation prompt — returns slide deck JSON array.
      * (Extracted from previous inline code, unchanged logic.)
      */
-    private function build_presentation_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline ) {
+    private function build_presentation_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile = '' ) {
         $prompt  = "Create a professional slide deck as a JSON array.\n\n";
         $prompt .= "Topic/Problem: {$problem_title}\n";
         $prompt .= "Solution: {$solution_title}\n";
         if ( ! empty( $industries_str ) ) {
             $prompt .= "Target Industries: {$industries_str}\n";
+        }
+        if ( ! empty( $tone_profile ) ) {
+            $prompt .= "\nClient Voice & Style (match this tone):\n{$tone_profile}\n";
         }
         if ( ! empty( $brain_summary ) ) {
             $prompt .= "\nContext from client resources:\n{$brain_summary}\n";
