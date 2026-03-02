@@ -170,12 +170,15 @@ class Journey_Circle_Activator {
             content_type VARCHAR(50) NOT NULL,
             content_value LONGTEXT NOT NULL,
             file_path VARCHAR(500),
+            extracted_text LONGTEXT,
+            extraction_status VARCHAR(20) DEFAULT 'pending',
             processed TINYINT(1) DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY  (id),
             KEY idx_journey_circle (journey_circle_id),
-            KEY idx_content_type (content_type)
+            KEY idx_content_type (content_type),
+            KEY idx_extraction_status (extraction_status)
         ) $charset;" );
 
         // 8. Journey State Snapshots (full localStorage backup)

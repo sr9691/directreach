@@ -182,6 +182,10 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             'previous_titles'   => $this->sanitize_array_param( $request->get_param( 'previous_titles' ) ),
         );
 
+        // Enrich brain content with extracted text from storage.
+        $args['brain_content']  = $this->enrich_brain_content_with_extracts( $args['brain_content'] );
+        $args['existing_assets'] = $this->enrich_brain_content_with_extracts( $args['existing_assets'] );        
+
         // Generate titles.
         $result = $this->generator->generate_problem_titles( $args );
 
@@ -250,6 +254,10 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             'force_refresh'     => (bool) $request->get_param( 'force_refresh' ),
             'exclude_titles'    => $this->sanitize_array_param( $request->get_param( 'exclude_titles' ) ),
         );
+
+        // Enrich brain content with extracted text from storage.
+        $args['brain_content']  = $this->enrich_brain_content_with_extracts( $args['brain_content'] );
+        $args['existing_assets'] = $this->enrich_brain_content_with_extracts( $args['existing_assets'] );
 
         // Generate titles.
         $result = $this->generator->generate_solution_titles( $args );
@@ -324,6 +332,11 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             'focus_instruction' => $request->get_param( 'focus_instruction' ) ?: '',
         );
 
+        // Enrich brain content with extracted text from storage.
+        if ( ! empty( $args['brain_content'] ) ) {
+            $args['brain_content'] = $this->enrich_brain_content_with_extracts( $args['brain_content'] );
+        }
+
         $result = $this->generator->generate_outline( $args );
 
         if ( is_wp_error( $result ) ) {
@@ -360,6 +373,11 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             'focus_instruction' => $request->get_param( 'focus_instruction' ) ?: '',
         );
 
+        // Enrich brain content with extracted text from storage.
+        if ( ! empty( $args['brain_content'] ) ) {
+            $args['brain_content'] = $this->enrich_brain_content_with_extracts( $args['brain_content'] );
+        }
+
         $result = $this->generator->generate_content( $args );
 
         if ( is_wp_error( $result ) ) {
@@ -373,6 +391,146 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             'success' => true,
             'content' => $result['content'],
         ), 200 );
+    }
+
+    // =========================================================================
+    // CONTENT ENRICHMENT
+    // =========================================================================
+
+    /**
+     * Enrich brain content items with stored extracted text.
+     *
+     * The frontend sends brain content as {type, value} objects.
+     * This method looks up each item's stored extracted_text from
+     * post meta and attaches it so the generator can use real content.
+     *
+     * @since 2.1.0
+     * @param array $items Brain content or existing assets array.
+     * @return array Enriched items with extracted_text added.
+     */
+    private function enrich_brain_content_with_extracts( $items ) {
+        if ( empty( $items ) || ! is_array( $items ) ) {
+            return $items;
+        }
+
+        foreach ( $items as &$item ) {
+            if ( ! is_array( $item ) ) {
+                continue;
+            }
+
+            // Skip if already has extracted text (e.g., text type with inline content).
+            if ( ! empty( $item['extracted_text'] ) ) {
+                continue;
+            }
+
+            // Try to find the brain content post by value.
+            $post_id = null;
+
+            // If fileId is present, use it directly.
+            if ( ! empty( $item['fileId'] ) ) {
+                $post_id = absint( $item['fileId'] );
+            } else {
+                // Look up by content value.
+                $post_id = $this->find_brain_content_post( $item );
+            }
+
+            if ( $post_id ) {
+                $extracted = get_post_meta( $post_id, '_jc_extracted_text', true );
+                if ( ! empty( $extracted ) ) {
+                    $item['extracted_text'] = $extracted;
+                }
+            }
+
+            // If post exists but hasn't been extracted yet, trigger extraction now.
+            if ( $post_id && empty( $extracted ) ) {
+                $status = get_post_meta( $post_id, '_jc_extraction_status', true );
+                if ( empty( $status ) || $status === 'pending' ) {
+                    $manager = new Brain_Content_Manager();
+                    $type    = $item['type'] ?? '';
+                    $value   = $item['value'] ?? '';
+
+                    if ( $type === 'url' && ! empty( $value ) ) {
+                        $manager->extract_and_store_url( $post_id, $value );
+                    } elseif ( $type === 'file' && ! empty( $value ) ) {
+                        $manager->extract_and_store_file( $post_id, $value );
+                    } elseif ( $type === 'text' && ! empty( $value ) ) {
+                        $manager->extract_and_store( $post_id, 'text', $value );
+                    }
+
+                    // Re-read after extraction.
+                    $extracted = get_post_meta( $post_id, '_jc_extracted_text', true );
+                    if ( ! empty( $extracted ) ) {
+                        $item['extracted_text'] = $extracted;
+                    }
+                }
+            }
+        }
+        unset( $item );
+
+        return $items;
+    }
+
+    /**
+     * Find a brain content post by its type and value.
+     *
+     * @since 2.1.0
+     * @param array $item Brain content item with type and value.
+     * @return int|null Post ID or null.
+     */
+    private function find_brain_content_post( $item ) {
+        $type  = $item['type'] ?? '';
+        $value = $item['value'] ?? '';
+
+        if ( empty( $type ) || empty( $value ) ) {
+            return null;
+        }
+
+        $meta_key = '';
+        switch ( $type ) {
+            case 'url':
+                $meta_key = '_jc_url';
+                break;
+            case 'file':
+                $meta_key = '_jc_file_path';
+                break;
+            case 'text':
+                // For text, the content is in post_content. Check extraction status.
+                // We can search by post type and match content.
+                $posts = get_posts( array(
+                    'post_type'   => 'jc_brain_content',
+                    'post_status' => 'publish',
+                    'numberposts' => 1,
+                    'meta_query'  => array(
+                        array(
+                            'key'   => '_jc_content_type',
+                            'value' => 'text',
+                        ),
+                        array(
+                            'key'     => '_jc_extraction_status',
+                            'value'   => 'completed',
+                        ),
+                    ),
+                    's' => substr( $value, 0, 100 ), // Search by content prefix.
+                ) );
+                return ! empty( $posts ) ? $posts[0]->ID : null;
+        }
+
+        if ( ! empty( $meta_key ) ) {
+            $posts = get_posts( array(
+                'post_type'   => 'jc_brain_content',
+                'post_status' => 'publish',
+                'numberposts' => 1,
+                'meta_query'  => array(
+                    array(
+                        'key'   => $meta_key,
+                        'value' => $value,
+                    ),
+                ),
+            ) );
+            return ! empty( $posts ) ? $posts[0]->ID : null;
+        }
+
+        return null;
     }
 
     // =========================================================================

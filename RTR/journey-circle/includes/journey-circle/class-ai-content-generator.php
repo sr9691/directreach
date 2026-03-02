@@ -147,8 +147,12 @@ class DR_AI_Content_Generator {
         );
         $args = wp_parse_args( $args, $defaults );
 
+        $service_area = $args['service_area_name'] ?: '(id:' . $args['service_area_id'] . ')';
+        $force        = $args['force_refresh'] ? 'yes' : 'no';
+
         // Validate inputs.
         if ( empty( $args['service_area_name'] ) && empty( $args['service_area_id'] ) ) {
+            error_log( "[JC AI] generate_problem_titles FAIL — missing service area" );
             return new WP_Error(
                 'missing_service_area',
                 __( 'Service area is required to generate problem titles.', 'directreach' )
@@ -158,7 +162,14 @@ class DR_AI_Content_Generator {
         // Resolve service area name from ID if needed.
         if ( empty( $args['service_area_name'] ) && ! empty( $args['service_area_id'] ) ) {
             $args['service_area_name'] = $this->get_service_area_name( $args['service_area_id'] );
+            $service_area = $args['service_area_name'];
         }
+
+        $prev_count = isset( $args['previous_titles'] ) ? count( $args['previous_titles'] ) : 0;
+        error_log( "[JC AI] generate_problem_titles START — service_area={$service_area}, force_refresh={$force}, previous_titles={$prev_count}" );
+
+        // Build cache key once — needed for both force-refresh deletion and normal lookup.
+        $cache_key = $this->build_cache_key( 'problem_titles', $args );
 
         // On force refresh, delete cached transient first.
         if ( $args['force_refresh'] ) {
@@ -167,9 +178,9 @@ class DR_AI_Content_Generator {
 
         // Check cache unless force refresh.
         if ( ! $args['force_refresh'] ) {
-            $cache_key = $this->build_cache_key( 'problem_titles', $args );
-            $cached    = get_transient( $cache_key );
+            $cached = get_transient( $cache_key );
             if ( false !== $cached ) {
+                error_log( "[JC AI] generate_problem_titles CACHE HIT — returning " . count( $cached ) . " cached titles" );
                 return $cached;
             }
         }
@@ -177,31 +188,37 @@ class DR_AI_Content_Generator {
         // Build prompt.
         $prompt = $this->build_problem_titles_prompt( $args );
 
-        // Call Gemini API.
+        // Log the full prompt for debugging title generation issues.
+        error_log( "[JC AI] generate_problem_titles PROMPT START >>>>" );
+        error_log( $prompt );
+        error_log( "[JC AI] generate_problem_titles PROMPT END <<<<" );
+
+        // Call Gemini API with higher token limit for structured multi-object response.
+        error_log( "[JC AI] generate_problem_titles API CALL — sending to Gemini ({$this->model})" );
         $response = $this->call_gemini_api( $prompt );
 
         if ( is_wp_error( $response ) ) {
+            error_log( "[JC AI] generate_problem_titles API ERROR — " . $response->get_error_code() . ': ' . $response->get_error_message() );
             return $response;
         }
+
+        // Log raw response for debugging truncation/parse issues.
+        error_log( "[JC AI] generate_problem_titles RAW RESPONSE (" . strlen( $response ) . " bytes): " . substr( $response, 0, 500 ) );
 
         // Parse response into title array.
         $titles = $this->parse_titles_response( $response, 'problems' );
 
         if ( is_wp_error( $titles ) ) {
+            error_log( "[JC AI] generate_problem_titles PARSE ERROR — " . $titles->get_error_message() );
             return $titles;
         }
 
-        // Validate we got enough titles.
-        if ( count( $titles ) < self::MIN_PROBLEM_TITLES ) {
-            // Pad with generic titles if AI returned too few.
-            $titles = $this->pad_problem_titles( $titles, $args['service_area_name'] );
-        }
-
-        // Trim to max.
+        // Trim to max — no padding, return only what the LLM produced.
         $titles = array_slice( $titles, 0, self::MAX_PROBLEM_TITLES );
 
+        error_log( "[JC AI] generate_problem_titles OK — {$service_area}, returned " . count( $titles ) . " titles" );
+
         // Cache the result.
-        $cache_key = $cache_key ?? $this->build_cache_key( 'problem_titles', $args );
         set_transient( $cache_key, $titles, self::CACHE_DURATION );
 
         return $titles;
@@ -239,13 +256,22 @@ class DR_AI_Content_Generator {
 
         $args = wp_parse_args( $args, $defaults );
 
+        $problem_short = substr( $args['problem_title'], 0, 60 );
+        $force         = $args['force_refresh'] ? 'yes' : 'no';
+
         // Validate inputs.
         if ( empty( $args['problem_title'] ) ) {
+            error_log( "[JC AI] generate_solution_titles FAIL — missing problem_title" );
             return new WP_Error(
                 'missing_problem_title',
                 __( 'Problem title is required to generate solution titles.', 'directreach' )
             );
         }
+
+        error_log( "[JC AI] generate_solution_titles START — problem=\"{$problem_short}\", force_refresh={$force}" );
+
+        // Build cache key once — needed for both force-refresh deletion and normal lookup.
+        $cache_key = $this->build_cache_key( 'solution_titles', $args );
 
         if ( $args['force_refresh'] ) {
             delete_transient( $cache_key );
@@ -253,9 +279,9 @@ class DR_AI_Content_Generator {
 
         // Check cache unless force refresh.
         if ( ! $args['force_refresh'] ) {
-            $cache_key = $this->build_cache_key( 'solution_titles', $args );
-            $cached    = get_transient( $cache_key );
+            $cached = get_transient( $cache_key );
             if ( false !== $cached ) {
+                error_log( "[JC AI] generate_solution_titles CACHE HIT — returning " . count( $cached ) . " cached titles" );
                 return $cached;
             }
         }
@@ -263,10 +289,12 @@ class DR_AI_Content_Generator {
         // Build prompt.
         $prompt = $this->build_solution_titles_prompt( $args );
 
-        // Call Gemini API.
+        // Call Gemini API with higher token limit for structured response.
+        error_log( "[JC AI] generate_solution_titles API CALL — sending to Gemini ({$this->model})" );
         $response = $this->call_gemini_api( $prompt );
 
         if ( is_wp_error( $response ) ) {
+            error_log( "[JC AI] generate_solution_titles API ERROR — " . $response->get_error_code() . ': ' . $response->get_error_message() );
             return $response;
         }
 
@@ -274,18 +302,16 @@ class DR_AI_Content_Generator {
         $titles = $this->parse_titles_response( $response, 'solutions' );
 
         if ( is_wp_error( $titles ) ) {
+            error_log( "[JC AI] generate_solution_titles PARSE ERROR — " . $titles->get_error_message() );
             return $titles;
         }
 
-        // Ensure exactly 3 titles.
+        // Trim to max — no padding, return only what the LLM produced.
         $titles = array_slice( $titles, 0, self::SOLUTION_TITLES_COUNT );
 
-        if ( count( $titles ) < self::SOLUTION_TITLES_COUNT ) {
-            $titles = $this->pad_solution_titles( $titles, $args['problem_title'] );
-        }
+        error_log( "[JC AI] generate_solution_titles OK — problem=\"{$problem_short}\", returned " . count( $titles ) . " titles" );
 
         // Cache the result.
-        $cache_key = $cache_key ?? $this->build_cache_key( 'solution_titles', $args );
         set_transient( $cache_key, $titles, self::CACHE_DURATION );
 
         return $titles;
@@ -343,68 +369,92 @@ class DR_AI_Content_Generator {
         $industries     = $this->format_industries( $args['industries'] );
         $service_area   = sanitize_text_field( $args['service_area_name'] );
 
-        // Build exclusion instruction if previous titles were provided.
-        $exclusion_block = '';
+        // Build negative constraints block if previous titles were provided.
+        $constraints_block = '';
         if ( ! empty( $args['previous_titles'] ) && is_array( $args['previous_titles'] ) ) {
             $previous_list = array();
             foreach ( $args['previous_titles'] as $prev_title ) {
                 $clean = is_array( $prev_title ) ? ( $prev_title['title'] ?? '' ) : $prev_title;
                 $clean = sanitize_text_field( $clean );
                 if ( ! empty( $clean ) ) {
-                    $previous_list[] = '- ' . $clean;
+                    $previous_list[] = '  * ' . $clean;
                 }
             }
             if ( ! empty( $previous_list ) ) {
-                $exclusion_block = "\n\nIMPORTANT — DO NOT REPEAT OR CLOSELY PARAPHRASE any of these previously generated titles:\n" . implode( "\n", $previous_list ) . "\n\nGenerate completely NEW titles with different angles, perspectives, and phrasing.\n";
+                $constraints_block = "- **Negative Constraints (Do NOT use or closely paraphrase):**\n" . implode( "\n", $previous_list );
             }
-        }        
-
+        }
 
     $prompt = <<<PROMPT
-You are an expert content marketing strategist specializing in B2B and service-based industries.
+### ROLE
+You are a Senior Content Strategist specializing in B2B Demand Generation for Professional & Business Services. Your expertise is identifying "unspoken" business pains and framing them as compelling content hooks that make executives uncomfortable enough to take action.
 
-TASK: Generate exactly 10 problem titles for a content marketing journey circle.
+### TASK
+Analyze the provided Source Material and generate exactly 10 unique "Problem-Centric" titles. These titles will serve as the foundation for a Content Marketing Journey (Top-of-Funnel).
 
-CONTEXT:
-- Service Area: {$service_area}
-- Target Industries: {$industries}
-- Source Material (Brain Content):
+### CONTEXT & KNOWLEDGE BASE
+- **Primary Service Area:** {$service_area}
+- **Target Industries:** {$industries}
+- **Core Insights (Brain Content):**
 {$brain_summary}
-- Existing Content Assets:
+- **Existing Content Assets:**
 {$assets_summary}
-{$exclusion_block}
+{$constraints_block}
 
-REQUIREMENTS FOR PROBLEM TITLES:
-1. Each title should describe a specific, painful problem that the target audience faces
-2. Write from the perspective of the potential customer experiencing the problem
-3. Be specific to the listed industries — avoid generic business problems
-4. Make titles content-marketing friendly — each should work as the basis for a long-form article, blog post, or whitepaper
-5. Focus on problems that the service area can ultimately solve
-6. Use language that resonates with decision-makers and stakeholders
-7. Vary the angle — cover different aspects of the pain point (cost, efficiency, risk, compliance, growth, talent, technology, etc.)
-8. Keep titles concise but descriptive (8-15 words each)
-9. Do NOT include numbering or bullet points in the titles themselves
+### TITLE CONSTRUCTION RULES (The "Framework")
+Every title must follow one of these four psychological "angles":
+1. **The Cost of Inaction:** The hidden financial or operational drain of the status quo.
+2. **The Opportunity Gap:** What the firm is losing to competitors who leverage {$service_area}.
+3. **The Executive Friction:** How this problem creates personal stress or risk for decision-makers.
+4. **The Scalability Wall:** Why current manual processes will break during the next growth phase.
 
-RESPONSE FORMAT:
-Return ONLY a valid JSON object with this exact structure:
+### TONE & PROVOCATION DEVICES
+Every title must pass the "Coffee Spiller" Test — would a Partner scrolling LinkedIn stop because this headline feels like an indictment of their current strategy? To achieve this, each title MUST use one of these provocation devices:
+
+1. **The Rhetorical Question:** Forces the reader to confront an uncomfortable truth.
+   → "Why are your best clients leaving before you even know they're unhappy?"
+2. **The Direct Accusation ("You" Statement):** Makes it personal and impossible to ignore.
+   → "Your pipeline is a fiction — and your board is about to find out"
+3. **The Shocking Frame:** Anchors the problem to a tangible, visceral cost or "final straw" moment.
+   → "That 30% proposal win rate is silently draining \$1.5M from your bottom line"
+4. **The Contrarian / Myth-Buster:** Challenges a commonly held belief or sacred cow.
+   → "More leads won't save you — your conversion problem starts after the first call"
+
+### REQUIREMENTS FOR HIGH-PUNCH TITLES
+1. **Title Format Mix:** At least 5 of the 10 titles MUST be phrased as questions. The remaining may be declarative but must still use a provocation device above.
+2. **Zero "Corporate Speak":** Ban generic phrasing like "inefficient processes," "struggling to," "challenges with," or "difficulty in." Use visceral language: "operational paralysis," "revenue hemorrhaging," "talent exodus," "pipeline fiction."
+3. **Outcome-Centric Fear:** Don't just mention the problem — name the "final straw" consequence: losing a Tier-1 client, a partner exodus, a failed merger, a missed acquisition, a board revolt.
+4. **Perspectives:** Frame titles as revelations or indictments — "The terrifying cost of...," "The realization that...," "What nobody tells you about..." — never as flat observations.
+5. **Industry-Specific Language:** Reference real Professional Services pain points: The Bench (underutilized staff), non-billable burn, equity dilution, pitch fatigue, RFP treadmill, realization rate collapse, client churn, utilization death spiral, partner-led growth stalls.
+6. **Voice:** Write as if a frustrated CEO is venting to a trusted advisor — raw, specific, unfiltered.
+7. **Length:** 10–20 words. Avoid "The Importance of..." or "How to..." (those are solution titles, not problem titles).
+8. **No Repeats:** Each title must attack a different internal silo (Finance, Ops, Sales, Talent, Technology, Compliance, Growth, Client Retention, etc.).
+9. **Distribute Angles:** Use each of the 4 framework angles at least twice across the 10 titles.
+10. **Distribute Devices:** Use each of the 4 provocation devices at least twice across the 10 titles.
+
+### WEAK vs. STRONG — Do NOT generate titles like the "Weak" column
+| Weak (vague, passive, corporate) | Strong (specific, visceral, provocative) |
+|---|---|
+| Difficulty scaling pipeline processes across teams | Why does every growth spurt break your pipeline — and who pays the price? |
+| Struggling to attract high-value clients | Your competitors are closing your dream clients while you're still "building relationships" |
+| Poor alignment between strategy and objectives | The strategy deck looks great — so why is revenue still flat? |
+| Lack of visibility into performance metrics | You can't manage what you can't see — and right now your pipeline is a black box |
+| High turnover in service delivery teams | The terrifying cost of losing three senior consultants in one quarter |
+
+### RESPONSE FORMAT
+Return ONLY a valid JSON object with this exact structure — no markdown, no code fences, no explanation:
 {
   "titles": [
-    {"title": "First problem title here", "rationale": "Brief 1-2 sentence explanation of why this problem matters to the target audience."},
-    {"title": "Second problem title here", "rationale": "Brief 1-2 sentence explanation."},
-    {"title": "Third problem title here", "rationale": "Brief 1-2 sentence explanation."},
-    {"title": "Fourth problem title here", "rationale": "Brief 1-2 sentence explanation."},
-    {"title": "Fifth problem title here", "rationale": "Brief 1-2 sentence explanation."},
-    {"title": "Sixth problem title here", "rationale": "Brief 1-2 sentence explanation."},
-    {"title": "Seventh problem title here", "rationale": "Brief 1-2 sentence explanation."},
-    {"title": "Eighth problem title here", "rationale": "Brief 1-2 sentence explanation."},
-    {"title": "Ninth problem title here", "rationale": "Brief 1-2 sentence explanation."},
-    {"title": "Tenth problem title here", "rationale": "Brief 1-2 sentence explanation."}
+    {
+      "title": "Problem title string here",
+      "angle": "Cost of Inaction | Opportunity Gap | Executive Friction | Scalability Wall",
+      "device": "Rhetorical Question | Direct Accusation | Shocking Frame | Contrarian",
+      "rationale": "Why this specific pain point keeps a target industry leader awake at night."
+    }
   ]
 }
 
-Each "rationale" should be a brief 1-2 sentence explanation of why this problem was selected — what makes it relevant to the target industries and service area, and why it would resonate with decision-makers.
-
-Return ONLY the JSON object. No markdown, no code fences, no explanation.
+CRITICAL: You MUST return exactly 10 objects in the "titles" array, no fewer. Each title must be unique, each rationale must be specific to that problem, and the "angle" and "device" fields must match the framework options listed above.
 PROMPT;
 
         return $prompt;
@@ -507,7 +557,7 @@ PROMPT;
             'temperature'     => 0.8,
             'topP'            => 0.9,
             'topK'            => 40,
-            'maxOutputTokens' => isset( $options['maxOutputTokens'] ) ? (int) $options['maxOutputTokens'] : 2048,
+            'maxOutputTokens' => isset( $options['maxOutputTokens'] ) ? (int) $options['maxOutputTokens'] : 16384,
         );
 
         // Only set responseMimeType when we genuinely need structured JSON.
@@ -692,11 +742,18 @@ PROMPT;
      * @return array|WP_Error Array of title strings or error.
      */
     private function parse_titles_response( $response_text, $type ) {
+        $raw_len = strlen( $response_text );
+        error_log( "[JC AI] parse_titles_response — type={$type}, raw_length={$raw_len}" );
+
         // Strategy 1: Direct JSON parse.
         $data = json_decode( $response_text, true );
 
         if ( json_last_error() === JSON_ERROR_NONE && isset( $data['titles'] ) && is_array( $data['titles'] ) ) {
-            return $this->sanitize_titles( $data['titles'] );
+            $raw_count = count( $data['titles'] );
+            $result    = $this->sanitize_titles( $data['titles'] );
+            $clean_count = count( $result );
+            error_log( "[JC AI] parse_titles_response OK (strategy=json) — raw_titles={$raw_count}, after_sanitize={$clean_count}" );
+            return $result;
         }
 
         // Strategy 2: Extract JSON from markdown code fences.
@@ -704,7 +761,11 @@ PROMPT;
         if ( $cleaned ) {
             $data = json_decode( $cleaned, true );
             if ( json_last_error() === JSON_ERROR_NONE && isset( $data['titles'] ) && is_array( $data['titles'] ) ) {
-                return $this->sanitize_titles( $data['titles'] );
+                $raw_count = count( $data['titles'] );
+                $result    = $this->sanitize_titles( $data['titles'] );
+                $clean_count = count( $result );
+                error_log( "[JC AI] parse_titles_response OK (strategy=extract) — raw_titles={$raw_count}, after_sanitize={$clean_count}" );
+                return $result;
             }
         }
 
@@ -713,7 +774,11 @@ PROMPT;
             $array_str = '[' . $matches[1] . ']';
             $titles    = json_decode( $array_str, true );
             if ( json_last_error() === JSON_ERROR_NONE && is_array( $titles ) ) {
-                return $this->sanitize_titles( $titles );
+                $raw_count = count( $titles );
+                $result    = $this->sanitize_titles( $titles );
+                $clean_count = count( $result );
+                error_log( "[JC AI] parse_titles_response OK (strategy=array) — raw_titles={$raw_count}, after_sanitize={$clean_count}" );
+                return $result;
             }
         }
 
@@ -735,10 +800,15 @@ PROMPT;
         }
 
         if ( ! empty( $titles ) ) {
-            return $this->sanitize_titles( $titles );
+            $raw_count = count( $titles );
+            $result    = $this->sanitize_titles( $titles );
+            $clean_count = count( $result );
+            error_log( "[JC AI] parse_titles_response OK (strategy=lines) — raw_lines={$raw_count}, after_sanitize={$clean_count}" );
+            return $result;
         }
 
         // All parsing strategies failed.
+        error_log( "[JC AI] parse_titles_response FAIL — all strategies exhausted, raw preview: " . substr( $response_text, 0, 200 ) );
         $this->last_error = __( 'Could not parse AI response into titles. Please try regenerating.', 'directreach' );
         return new WP_Error( 'parse_error', $this->last_error, array(
             'raw_response' => substr( $response_text, 0, 500 ),
@@ -790,32 +860,53 @@ PROMPT;
                 $t = trim( $t, '"\'`' );
                 $t = trim( $t );
 
+                // Reject JSON artifacts: anything that looks like a key-value fragment.
+                if ( $this->is_json_fragment( $t ) ) {
+                    continue;
+                }
+
                 if ( strlen( $t ) < 10 || strlen( $t ) > 200 ) {
                     continue;
                 }
 
                 $item = array( 'title' => $t );
 
+                if ( ! empty( $title['angle'] ) ) {
+                    $a = sanitize_text_field( $title['angle'] );
+                    if ( ! $this->is_json_fragment( $a ) ) {
+                        $item['angle'] = $a;
+                    }
+                }
+
+                if ( ! empty( $title['device'] ) ) {
+                    $d = sanitize_text_field( $title['device'] );
+                    if ( ! $this->is_json_fragment( $d ) ) {
+                        $item['device'] = $d;
+                    }
+                }
+
                 if ( ! empty( $title['rationale'] ) ) {
-                    $item['rationale'] = sanitize_text_field( $title['rationale'] );
+                    $r = sanitize_text_field( $title['rationale'] );
+                    // Don't store rationale if it's also a JSON artifact.
+                    if ( ! $this->is_json_fragment( $r ) ) {
+                        $item['rationale'] = $r;
+                    }
                 }
 
                 $sanitized[] = $item;
                 continue;
             }
 
-            // Handle plain strings (backward compat / fallback / pad titles).
+            // Handle plain strings (backward compat / fallback).
             if ( ! is_string( $title ) ) {
                 continue;
             }
 
             // Guard: Gemini sometimes returns stringified JSON fragments as title values.
-            // e.g. 'title": "Actual title here",' or 'rationale": "Some text"'
             if ( preg_match( '/^(title|rationale)"\s*:\s*"(.+)$/s', $title, $frag ) ) {
                 $key = $frag[1];
                 $val = rtrim( $frag[2], '",. ' );
                 if ( $key === 'rationale' ) {
-                    // Skip standalone rationale fragments — they're not titles.
                     continue;
                 }
                 $title = $val;
@@ -825,17 +916,50 @@ PROMPT;
             $title = trim( $title, '"\'\`' );
             $title = trim( $title );
 
+            // Reject JSON artifacts.
+            if ( $this->is_json_fragment( $title ) ) {
+                continue;
+            }
+
             // Skip empty or too-short titles.
-            if ( strlen( $title ) < 5 ) {
+            if ( strlen( $title ) < 10 ) {
                 continue;
             }
 
             // Skip duplicates.
-            if ( ! in_array( $title, $sanitized, true ) ) {
+            $existing_titles = array_map( function( $s ) {
+                return is_array( $s ) ? $s['title'] : $s;
+            }, $sanitized );
+            if ( ! in_array( $title, $existing_titles, true ) ) {
                 $sanitized[] = $title;
             }
         }
         return $sanitized;
+    }
+
+    /**
+     * Check if a string looks like a JSON key/value fragment rather than real content.
+     *
+     * Catches things like: 'rationale":', '"title": "..."', '{ "title"', etc.
+     *
+     * @param string $text Text to check.
+     * @return bool True if it appears to be a JSON artifact.
+     */
+    private function is_json_fragment( $text ) {
+        $t = trim( $text );
+        // Matches: word":\s  or  "word":\s  (JSON key patterns)
+        if ( preg_match( '/^"?\w+"\s*:/', $t ) ) {
+            return true;
+        }
+        // Matches: starts with { or [ (partial JSON object/array)
+        if ( preg_match( '/^\s*[\{\[]/', $t ) ) {
+            return true;
+        }
+        // Matches: ends with a dangling JSON key like  ..."rationale":
+        if ( preg_match( '/"\s*:\s*$/', $t ) ) {
+            return true;
+        }
+        return false;
     }
 
     // =========================================================================
@@ -845,6 +969,9 @@ PROMPT;
     /**
      * Summarize brain content into a text block for prompts.
      *
+     * Uses extracted/summarized text when available, falling back to
+     * metadata for items that haven't been processed yet.
+     *
      * @param array $brain_content Array of brain content items.
      * @return string Summarized text.
      */
@@ -853,7 +980,7 @@ PROMPT;
             return '(No source material provided)';
         }
 
-        $parts = array();
+        $parts      = array();
         $url_count  = 0;
         $text_count = 0;
         $file_count = 0;
@@ -863,29 +990,38 @@ PROMPT;
                 continue;
             }
 
-            $type  = isset( $item['type'] ) ? $item['type'] : '';
-            $value = isset( $item['value'] ) ? $item['value'] : '';
+            $type           = isset( $item['type'] ) ? $item['type'] : '';
+            $value          = isset( $item['value'] ) ? $item['value'] : '';
+            $extracted_text = isset( $item['extracted_text'] ) ? trim( $item['extracted_text'] ) : '';
 
             switch ( $type ) {
                 case 'url':
                     $url_count++;
-                    $parts[] = '- Reference URL: ' . esc_url( $value );
+                    if ( ! empty( $extracted_text ) ) {
+                        $parts[] = '- Content from URL (' . esc_url( $value ) . "):\n  " . $extracted_text;
+                    } else {
+                        $parts[] = '- Reference URL (content not yet extracted): ' . esc_url( $value );
+                    }
                     break;
 
                 case 'text':
                     $text_count++;
-                    // Truncate long text to keep prompt manageable.
-                    $text = wp_strip_all_tags( $value );
-                    if ( strlen( $text ) > 1000 ) {
-                        $text = substr( $text, 0, 1000 ) . '... (truncated)';
+                    // Use extracted summary if available, otherwise use raw value.
+                    $content = ! empty( $extracted_text ) ? $extracted_text : wp_strip_all_tags( $value );
+                    if ( strlen( $content ) > 2000 ) {
+                        $content = substr( $content, 0, 2000 ) . '... (truncated)';
                     }
-                    $parts[] = '- Pasted content: ' . $text;
+                    $parts[] = '- Pasted content: ' . $content;
                     break;
 
                 case 'file':
                     $file_count++;
                     $filename = isset( $item['filename'] ) ? $item['filename'] : $value;
-                    $parts[] = '- Uploaded file: ' . sanitize_file_name( $filename );
+                    if ( ! empty( $extracted_text ) ) {
+                        $parts[] = '- Content from file (' . sanitize_file_name( $filename ) . "):\n  " . $extracted_text;
+                    } else {
+                        $parts[] = '- Uploaded file (content not yet extracted): ' . sanitize_file_name( $filename );
+                    }
                     break;
             }
         }
@@ -899,34 +1035,28 @@ PROMPT;
         // Add count summary.
         $counts = array();
         if ( $url_count > 0 ) {
-            /* translators: %d: number of URLs */
             $counts[] = sprintf( _n( '%d URL', '%d URLs', $url_count, 'directreach' ), $url_count );
         }
         if ( $text_count > 0 ) {
-            /* translators: %d: number of text blocks */
             $counts[] = sprintf( _n( '%d text block', '%d text blocks', $text_count, 'directreach' ), $text_count );
         }
         if ( $file_count > 0 ) {
-            /* translators: %d: number of files */
             $counts[] = sprintf( _n( '%d file', '%d files', $file_count, 'directreach' ), $file_count );
         }
 
         $header = sprintf(
-            /* translators: %s: comma-separated count summary */
             __( 'Source material includes: %s', 'directreach' ),
             implode( ', ', $counts )
         );
 
         return $header . "\n" . $summary;
     }
-
-/**
+    
+    /**
      * Summarize existing content assets into a readable string for prompts.
      *
-     * Existing assets are content the client already has (blog posts, whitepapers,
-     * landing pages, uploaded files) from Step 3 of the Journey Circle workflow.
-     * Including them helps the AI avoid duplicating existing content and instead
-     * generate complementary problem/solution titles.
+     * Uses extracted text when available so the AI understands what
+     * content already exists and can avoid duplication.
      *
      * @param array $existing_assets Array of existing asset items.
      * @return string Summarized text.
@@ -936,7 +1066,7 @@ PROMPT;
             return '(No existing content assets provided)';
         }
 
-        $parts     = array();
+        $parts      = array();
         $url_count  = 0;
         $file_count = 0;
 
@@ -945,30 +1075,38 @@ PROMPT;
                 continue;
             }
 
-            $type  = isset( $item['type'] ) ? $item['type'] : '';
-            $name  = isset( $item['name'] ) ? sanitize_text_field( $item['name'] ) : '';
-            $value = isset( $item['value'] ) ? $item['value'] : '';
+            $type           = isset( $item['type'] ) ? $item['type'] : '';
+            $name           = isset( $item['name'] ) ? sanitize_text_field( $item['name'] ) : '';
+            $value          = isset( $item['value'] ) ? $item['value'] : '';
+            $extracted_text = isset( $item['extracted_text'] ) ? trim( $item['extracted_text'] ) : '';
 
             switch ( $type ) {
                 case 'url':
                     $url_count++;
                     $display = $name ? $name : esc_url( $value );
-                    $parts[] = '- Existing content URL: ' . $display . ( $name && $value ? ' (' . esc_url( $value ) . ')' : '' );
+                    if ( ! empty( $extracted_text ) ) {
+                        $parts[] = '- Existing content: ' . $display . "\n  Summary: " . $extracted_text;
+                    } else {
+                        $parts[] = '- Existing content URL: ' . $display . ( $name && $value ? ' (' . esc_url( $value ) . ')' : '' );
+                    }
                     break;
 
                 case 'file':
                     $file_count++;
                     $filename = $name ? $name : ( isset( $item['filename'] ) ? sanitize_file_name( $item['filename'] ) : $value );
-                    $mime     = isset( $item['mimeType'] ) ? sanitize_text_field( $item['mimeType'] ) : '';
-                    $parts[]  = '- Existing file: ' . $filename . ( $mime ? ' (' . $mime . ')' : '' );
+                    if ( ! empty( $extracted_text ) ) {
+                        $parts[] = '- Existing file: ' . $filename . "\n  Summary: " . $extracted_text;
+                    } else {
+                        $mime    = isset( $item['mimeType'] ) ? sanitize_text_field( $item['mimeType'] ) : '';
+                        $parts[] = '- Existing file: ' . $filename . ( $mime ? ' (' . $mime . ')' : '' );
+                    }
                     break;
 
                 default:
-                    // text or other types
                     if ( ! empty( $value ) ) {
-                        $text = wp_strip_all_tags( $value );
-                        if ( strlen( $text ) > 500 ) {
-                            $text = substr( $text, 0, 500 ) . '... (truncated)';
+                        $text = ! empty( $extracted_text ) ? $extracted_text : wp_strip_all_tags( $value );
+                        if ( strlen( $text ) > 1000 ) {
+                            $text = substr( $text, 0, 1000 ) . '... (truncated)';
                         }
                         $parts[] = '- Existing content: ' . $text;
                     }
@@ -982,7 +1120,6 @@ PROMPT;
 
         $summary = implode( "\n", $parts );
 
-        // Add count summary header.
         $counts = array();
         if ( $url_count > 0 ) {
             $counts[] = sprintf( '%d existing URL%s', $url_count, $url_count > 1 ? 's' : '' );
@@ -994,7 +1131,7 @@ PROMPT;
         $header = 'Existing content assets: ' . ( ! empty( $counts ) ? implode( ', ', $counts ) : 'see below' );
 
         return $header . "\n" . $summary;
-    }    
+    }   
 
     /**
      * Format industries array into a readable string for prompts.
@@ -1074,89 +1211,6 @@ PROMPT;
             return 'empty';
         }
         return md5( wp_json_encode( $brain_content ) );
-    }
-
-    // =========================================================================
-    // FALLBACK / PADDING
-    // =========================================================================
-
-    /**
-     * Pad problem titles if AI returned too few.
-     *
-     * @param array  $titles        Existing titles.
-     * @param string $service_area  Service area name.
-     * @return array Padded titles array.
-     */
-    private function pad_problem_titles( $titles, $service_area ) {
-        $generic_patterns = array(
-            'Rising costs of managing %s operations without a clear strategy',
-            'Difficulty scaling %s processes across growing teams',
-            'Lack of visibility into %s performance metrics and ROI',
-            'Struggling to keep up with industry changes in %s',
-            'Inefficient %s workflows causing missed deadlines and opportunities',
-            'Poor alignment between %s strategy and business objectives',
-            'High turnover and talent gaps in %s teams',
-            'Outdated technology hampering %s effectiveness',
-            'Compliance and regulatory challenges in %s',
-            'Fragmented %s data making informed decisions impossible',
-        );
-
-        $count = count( $titles );
-        while ( $count < self::MIN_PROBLEM_TITLES ) {
-            $pattern = $generic_patterns[ $count % count( $generic_patterns ) ];
-            $title_text = sprintf( $pattern, $service_area );
-            // Check for duplicates against both string and object formats.
-            $existing = array_map( function( $t ) {
-                return is_array( $t ) ? $t['title'] : $t;
-            }, $titles );
-            if ( ! in_array( $title_text, $existing, true ) ) {
-                $titles[] = array(
-                    'title'     => $title_text,
-                    'rationale' => 'This is a common challenge in the ' . $service_area . ' space that many organizations face.',
-                );
-            }
-            $count++;
-        }
-
-        return $titles;
-    }
-
-    /**
-     * Pad solution titles if AI returned too few.
-     *
-     * @param array  $titles        Existing titles.
-     * @param string $problem_title Problem being solved.
-     * @return array Padded titles array.
-     */
-    private function pad_solution_titles( $titles, $problem_title ) {
-        $generic_patterns = array(
-            'Implementing a strategic framework to address: %s',
-            'Building a data-driven approach to overcome: %s',
-            'Leveraging expert guidance to solve: %s',
-        );
-
-        $count = count( $titles );
-        while ( $count < self::SOLUTION_TITLES_COUNT ) {
-            // Truncate problem title for pattern.
-            $short_problem = strlen( $problem_title ) > 60
-                ? substr( $problem_title, 0, 57 ) . '...'
-                : $problem_title;
-            $pattern = $generic_patterns[ $count % count( $generic_patterns ) ];
-            $title_text = sprintf( $pattern, $short_problem );
-            // Check for duplicates against both string and object formats.
-            $existing = array_map( function( $t ) {
-                return is_array( $t ) ? $t['title'] : $t;
-            }, $titles );
-            if ( ! in_array( $title_text, $existing, true ) ) {
-                $titles[] = array(
-                    'title'     => $title_text,
-                    'rationale' => 'This approach directly targets the core challenge described in the problem statement.',
-                );
-            }
-            $count++;
-        }
-
-        return $titles;
     }
 
     // =========================================================================
@@ -1447,7 +1501,7 @@ PROMPT;
         }
 
         // All formats now use JSON response mode.
-        $max_tokens = ( $format === 'presentation' || $format === 'infographic' ) ? 8192 : 4096;
+        $max_tokens = 16384;
         $api_options = array(
             'maxOutputTokens'  => $max_tokens,
             'responseMimeType' => 'application/json',

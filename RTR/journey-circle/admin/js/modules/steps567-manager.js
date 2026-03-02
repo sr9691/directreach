@@ -14,6 +14,13 @@
  * Calls: POST /directreach/v2/ai/generate-problem-titles
  *        POST /directreach/v2/ai/generate-solution-titles
  * 
+ * Cascade clearing:
+ *   - When the primary problem changes (Step 5), all downstream data
+ *     (selected problems, solution suggestions/selections, offers, assets)
+ *     is cleared because it was generated based on the old context.
+ *   - When problem titles are regenerated (Step 6), solution data and
+ *     downstream selections are cleared for the same reason.
+ * 
  * @package DirectReach_Campaign_Builder
  * @subpackage Journey_Circle
  * @since 2.0.0
@@ -59,6 +66,7 @@
             this._step5Running = false;
             this._step6Running = false;
             this._step7Running = false;
+            this._step6NeedsRefresh = false;
 
             // Listen for step changes
             $(document).on('jc:stepChanged', (e, step) => {
@@ -88,6 +96,7 @@
                 this._step5Running = false;
                 this._step6Running = false;
                 this._step7Running = false;
+                this._step6NeedsRefresh = false;
                 console.log('[Steps567] Cleared caches for service area change');
             });
 
@@ -161,9 +170,12 @@
                 const data = await response.json();
 
                 if (data.success && data.titles && data.titles.length > 0) {
+                    // New suggestions invalidate all downstream selections.
+                    this.clearDownstreamFromStep5();
+
                     this.problemSuggestions = data.titles.map((t, i) => {
                         if (typeof t === 'object' && t !== null && t.title) {
-                            return { id: `prob_${i}`, title: t.title, rationale: t.rationale || '' };
+                            return { id: `prob_${i}`, title: t.title, angle: t.angle || '', device: t.device || '', rationale: t.rationale || '' };
                         }
                         return { id: `prob_${i}`, title: typeof t === 'string' ? t : String(t), rationale: '' };
                     });
@@ -185,6 +197,10 @@
 
         renderStep5List(container) {
             container.innerHTML = this.problemSuggestions.map((p, i) => {
+                const badges = [p.angle, p.device].filter(Boolean).map(b =>
+                    `<span style="display:inline-block;padding:2px 8px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;border-radius:3px;background:#eef2ff;color:#4a5568">${this.esc(b)}</span>`
+                ).join(' ');
+                const badgeRow = badges ? `<div style="margin-left:62px;margin-top:4px;display:flex;gap:6px;flex-wrap:wrap">${badges}</div>` : '';
                 const rationale = p.rationale ? `<div style="margin-top:4px;margin-left:62px;font-size:12px;color:#6b7280;line-height:1.4;font-style:italic">${this.esc(p.rationale)}</div>` : '';
                 return `
                 <div class="jc-problem-card ${this.primaryProblemId === p.id ? 'jc-selected' : ''}"
@@ -197,6 +213,7 @@
                         <span style="background:#4a90d9;color:#fff;border-radius:50%;min-width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-weight:700">${i + 1}</span>
                         <span style="flex:1;font-size:14px">${this.esc(p.title)}</span>
                     </label>
+                    ${badgeRow}
                     ${rationale}
                 </div>
             `}).join('');
@@ -204,9 +221,18 @@
             // Bind radio changes
             container.querySelectorAll('input[name="primaryProblem"]').forEach(radio => {
                 radio.addEventListener('change', (e) => {
-                    this.primaryProblemId = e.target.value;
+                    const newPrimaryId = e.target.value;
+                    const previousPrimaryId = this.primaryProblemId;
+
+                    this.primaryProblemId = newPrimaryId;
                     this.workflow.updateState('primaryProblemId', this.primaryProblemId);
-                    this.renderStep5List(container); // Re-render to update styles
+
+                    // If primary problem changed, downstream titles are stale — clear them.
+                    if (previousPrimaryId && previousPrimaryId !== newPrimaryId) {
+                        this.clearDownstreamFromStep5();
+                    }
+
+                    this.renderStep5List(container);
                 });
             });
 
@@ -245,8 +271,13 @@
                 regenBtn.addEventListener('click', () => this.loadProblems6(list, loading, regenBtn, countEl, true));
             }
 
-            // Use suggestions from Step 5 if available, otherwise generate fresh
-            if (this.problemSuggestions.length === 0) {
+            // If primary problem changed since last Step 6 load, force refresh
+            const needsRefresh = this._step6NeedsRefresh || false;
+            if (needsRefresh) {
+                this._step6NeedsRefresh = false;
+                await this.loadProblems6(list, loading, regenBtn, countEl, true);
+            } else if (this.problemSuggestions.length === 0) {
+                // First visit — generate fresh
                 await this.loadProblems6(list, loading, regenBtn, countEl, false);
             } else {
                 this.renderStep6List(list, countEl);
@@ -262,6 +293,16 @@
 
             const state = this.workflow.getState();
 
+            // Identify which suggestions are currently selected (user wants to keep these).
+            const selectedIds = new Set(this.selectedProblems.map(p => p.id));
+            const keptSuggestions = forceRefresh
+                ? this.problemSuggestions.filter(p => selectedIds.has(p.id))
+                : [];
+            // Titles to exclude from AI: both previously-shown AND kept/selected titles.
+            const excludeTitles = forceRefresh
+                ? this.problemSuggestions.map(p => p.title)
+                : [];
+
             try {
                 const response = await fetch(`${this.apiBase}/ai/generate-problem-titles`, {
                     method: 'POST',
@@ -276,19 +317,47 @@
                         brain_content: state.brainContent || [],
                         existing_assets: state.existingAssets || [],
                         force_refresh: forceRefresh,
-                        previous_titles: forceRefresh ? this.problemSuggestions.map(p => p.title) : []
+                        previous_titles: excludeTitles
                     })
                 });
 
                 const data = await response.json();
 
                 if (data.success && data.titles && data.titles.length > 0) {
-                    this.problemSuggestions = data.titles.map((t, i) => {
+                    const newSuggestions = data.titles.map((t, i) => {
                         if (typeof t === 'object' && t !== null && t.title) {
-                            return { id: `prob_${i}`, title: t.title, rationale: t.rationale || '' };
+                            return { id: `prob_${i}`, title: t.title, angle: t.angle || '', device: t.device || '', rationale: t.rationale || '' };
                         }
                         return { id: `prob_${i}`, title: typeof t === 'string' ? t : String(t), rationale: '' };
                     });
+
+                    if (forceRefresh && keptSuggestions.length > 0) {
+                        // Merge: kept (selected) titles first, then fill with new ones
+                        // to reach the original count. Avoid duplicating titles.
+                        const keptTitles = new Set(keptSuggestions.map(p => p.title.toLowerCase()));
+                        const deduped = newSuggestions.filter(p => !keptTitles.has(p.title.toLowerCase()));
+                        const targetCount = Math.max(this.problemSuggestions.length, 8);
+                        const fillCount = targetCount - keptSuggestions.length;
+                        this.problemSuggestions = [
+                            ...keptSuggestions,
+                            ...deduped.slice(0, fillCount)
+                        ];
+                        // Re-index IDs so they're unique
+                        this.problemSuggestions.forEach((p, idx) => { p.id = `prob_${idx}`; });
+                        // Update selectedProblems IDs to match new indices
+                        this.selectedProblems = this.selectedProblems.map(sp => {
+                            const match = this.problemSuggestions.find(ps => ps.title === sp.title);
+                            return match ? { id: match.id, title: match.title } : sp;
+                        });
+                        this.workflow.updateState('selectedProblems', this.selectedProblems);
+                        // Clear downstream solutions since unselected problems changed
+                        this.clearSolutionData();
+                    } else {
+                        // Full replacement (first load or no selections yet)
+                        this.clearDownstreamFromStep6();
+                        this.problemSuggestions = newSuggestions;
+                    }
+
                     // Persist suggestions so they survive page reload / browser restart
                     this.workflow.updateState('problemSuggestions', this.problemSuggestions);
                     this.renderStep6List(list, countEl);
@@ -307,6 +376,10 @@
         renderStep6List(container, countEl) {
             container.innerHTML = this.problemSuggestions.map((p, i) => {
                 const isSelected = this.selectedProblems.some(sp => sp.id === p.id);
+                const badges = [p.angle, p.device].filter(Boolean).map(b =>
+                    `<span style="display:inline-block;padding:2px 8px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;border-radius:3px;background:#eef2ff;color:#4a5568">${this.esc(b)}</span>`
+                ).join(' ');
+                const badgeRow = badges ? `<div style="margin-left:62px;margin-top:4px;display:flex;gap:6px;flex-wrap:wrap">${badges}</div>` : '';
                 const rationale = p.rationale ? `<div style="margin-top:4px;margin-left:62px;font-size:12px;color:#6b7280;line-height:1.4;font-style:italic">${this.esc(p.rationale)}</div>` : '';
                 return `
                     <div class="jc-problem-checkbox-card"
@@ -320,6 +393,7 @@
                             <span style="background:#e74c3c;color:#fff;border-radius:50%;min-width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px">${i + 1}</span>
                             <span style="flex:1;font-size:14px">${this.esc(p.title)}</span>
                         </label>
+                        ${badgeRow}
                         ${rationale}
                     </div>
                 `;
@@ -339,14 +413,22 @@
                         return;
                     }
 
-                    // Update selected problems
-                    this.selectedProblems = Array.from(checked).map(c => ({
+                    // Detect if selection actually changed (different problems selected)
+                    const newSelection = Array.from(checked).map(c => ({
                         id: c.value,
                         title: c.dataset.title
                     }));
+                    const selectionChanged = this.hasSelectionChanged(this.selectedProblems, newSelection);
 
+                    // Update selected problems
+                    this.selectedProblems = newSelection;
                     this.workflow.updateState('selectedProblems', this.selectedProblems);
                     this.updateStep6Count(countEl);
+
+                    // If the set of selected problems changed, solution titles are stale
+                    if (selectionChanged) {
+                        this.clearSolutionData();
+                    }
 
                     // Update card styles
                     container.querySelectorAll('.jc-problem-checkbox-card').forEach(card => {
@@ -426,8 +508,8 @@
 
             const state = this.workflow.getState();
 
-            // *** FIX #4: Determine which problems need new solutions ***
-            // Only regenerate for problems that DON'T have a confirmed selection
+            // Determine which problems need new solutions.
+            // Only regenerate for problems that DON'T have a confirmed selection.
             const problemsToRegenerate = forceRefresh
                 ? this.selectedProblems.filter(p => !this.selectedSolutions[p.id])
                 : this.selectedProblems.filter(p => !this.solutionSuggestions[p.id] || this.solutionSuggestions[p.id].length === 0);
@@ -652,6 +734,117 @@
                     if (e.key === 'Enter') { e.preventDefault(); addEntry(); }
                 });
             }
+        }
+
+        // =====================================================================
+        // CASCADE CLEARING
+        // =====================================================================
+
+        /**
+         * Clear all downstream data when Step 5 (primary problem) changes.
+         *
+         * Problem titles and solution titles were generated based on the
+         * previous primary problem context, so they're no longer relevant.
+         */
+        clearDownstreamFromStep5() {
+            // Mark suggestions as stale so Step 6 will re-fetch when it loads.
+            // Do NOT clear problemSuggestions here — Step 5 is still displaying them.
+            this._step6NeedsRefresh = true;
+
+            // Clear Step 6 selections
+            this.selectedProblems = [];
+            this.workflow.updateState('selectedProblems', []);
+
+            // Clear Step 7 data
+            this.solutionSuggestions = {};
+            this.selectedSolutions = {};
+            this.workflow.updateState('solutionSuggestions', {});
+            this.workflow.updateState('selectedSolutions', {});
+
+            // Clear Step 8+ data that depends on problem/solution structure
+            this.workflow.updateState('offers', {});
+            this.workflow.updateState('contentAssets', {});
+            this.workflow.updateState('publishedUrls', {});
+
+            // Reset step-running guard so Step 6 will re-init fresh
+            this._step6Running = false;
+
+            console.log('[Steps567] Cleared downstream data from Step 5 change (Step 6 marked for refresh)');
+
+            // Notify other modules
+            $(document).trigger('jc:downstreamCleared', ['step5']);
+        }
+
+        /**
+         * Clear downstream data when Step 6 (problem title list) is regenerated.
+         *
+         * Solution titles were generated for the previous set of problems,
+         * so they're no longer relevant.
+         */
+        clearDownstreamFromStep6() {
+            // Clear Step 6 selections (new suggestions = new selection needed)
+            this.selectedProblems = [];
+            this.workflow.updateState('selectedProblems', []);
+
+            // Clear Step 7 data
+            this.solutionSuggestions = {};
+            this.selectedSolutions = {};
+            this.workflow.updateState('solutionSuggestions', {});
+            this.workflow.updateState('selectedSolutions', {});
+
+            // Clear Step 8+ data that depends on problem/solution structure
+            this.workflow.updateState('offers', {});
+            this.workflow.updateState('contentAssets', {});
+            this.workflow.updateState('publishedUrls', {});
+
+            console.log('[Steps567] Cleared downstream data from Step 6 regeneration');
+
+            $(document).trigger('jc:downstreamCleared', ['step6']);
+        }
+
+        /**
+         * Clear only solution data (used when Step 6 selection changes
+         * without a full regeneration).
+         *
+         * When the user checks/unchecks problems in Step 6, the solution
+         * titles for deselected problems are no longer relevant.
+         */
+        clearSolutionData() {
+            this.solutionSuggestions = {};
+            this.selectedSolutions = {};
+            this.workflow.updateState('solutionSuggestions', {});
+            this.workflow.updateState('selectedSolutions', {});
+
+            // Also clear downstream data that depends on solutions
+            this.workflow.updateState('offers', {});
+            this.workflow.updateState('contentAssets', {});
+            this.workflow.updateState('publishedUrls', {});
+
+            console.log('[Steps567] Cleared solution data due to problem selection change');
+
+            $(document).trigger('jc:downstreamCleared', ['step6-selection']);
+        }
+
+        /**
+         * Check if two problem selection arrays contain different problems.
+         *
+         * @param {Array} oldSelection Previous selected problems.
+         * @param {Array} newSelection New selected problems.
+         * @returns {boolean} True if the selections differ.
+         */
+        hasSelectionChanged(oldSelection, newSelection) {
+            if (oldSelection.length !== newSelection.length) return true;
+
+            const oldIds = new Set(oldSelection.map(p => p.id));
+            const newIds = new Set(newSelection.map(p => p.id));
+
+            if (oldIds.size !== newIds.size) return true;
+
+            for (const id of oldIds) {
+                if (!newIds.has(id)) return true;
+            }
+
+            return false;
         }
 
         // =====================================================================
