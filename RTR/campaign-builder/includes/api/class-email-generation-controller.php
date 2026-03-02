@@ -291,6 +291,35 @@ class Email_Generation_Controller extends WP_REST_Controller {
                     'default'           => 0,
                     'description'       => 'Optional client filter. 0 = all clients.',
                 ),
+                'skip_if_recent_days' => array(
+                    'required'          => false,
+                    'type'              => 'integer',
+                    'default'           => 0,
+                    'description'       => 'Skip prospects that had an email generated within this many days. 0 = no skip.',
+                ),
+            ),
+        ));
+
+        // Single prospect: JourneyOS email generation (proxy)
+        register_rest_route( $this->namespace, '/' . $this->rest_base . '/journeyos-generate', array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => array( $this, 'journeyos_generate' ),
+            'permission_callback' => array( $this, 'generate_permissions_check' ),
+            'args'                => array(
+                'prospect_id' => array(
+                    'required'          => true,
+                    'type'              => 'integer',
+                    'validate_callback' => function( $param ) {
+                        return is_numeric( $param ) && $param > 0;
+                    },
+                    'description'       => 'Prospect ID (rtr_prospects.id)',
+                ),
+                'room_type' => array(
+                    'required'          => false,
+                    'type'              => 'string',
+                    'default'           => '',
+                    'description'       => 'Room type. If empty, uses prospect current_room.',
+                ),
             ),
         ));        
 
@@ -577,6 +606,7 @@ class Email_Generation_Controller extends WP_REST_Controller {
         $room_type   = sanitize_text_field( $request->get_param( 'room_type' ) );
         $campaign_id = absint( $request->get_param( 'campaign_id' ) );
         $client_id   = absint( $request->get_param( 'client_id' ) );
+        $skip_recent_days = absint( $request->get_param( 'skip_if_recent_days' ) );
 
         // Get CIS server URL from wp_options (set in DirectReach settings)
         $cis_url = get_option( 'directreach_cis_server_url', '' );
@@ -643,6 +673,19 @@ class Email_Generation_Controller extends WP_REST_Controller {
             $prospect_id = (int) $prospect->id;
             $visitor_id  = (int) $prospect->visitor_id;
             $camp_id     = (int) $prospect->campaign_id;
+
+            // --- 7-day skip check ---
+            if ( $skip_recent_days > 0 && self::prospect_has_recent_email( $prospect_id, $skip_recent_days ) ) {
+                $skipped++;
+                $results[] = array(
+                    'prospect_id' => $prospect_id,
+                    'visitor_id'  => $visitor_id,
+                    'company'     => $prospect->company_name,
+                    'status'      => 'skipped',
+                    'reason'      => "Email generated within last {$skip_recent_days} days",
+                );
+                continue;
+            }
 
             // Parse email_states to find next email number
             $email_states = json_decode( $prospect->email_states, true );
@@ -992,6 +1035,223 @@ class Email_Generation_Controller extends WP_REST_Controller {
         }
     }
 
+
+    // -------------------------------------------------------------------------
+    // JourneyOS Integration
+    // -------------------------------------------------------------------------
+
+    /**
+     * Proxy a single email generation request to the JourneyOS FastAPI service.
+     *
+     * Flow:
+     *  1. Look up the prospect to get campaign_id and current_room.
+     *  2. Determine the next email number in the sequence.
+     *  3. POST to JourneyOS /api/generate via call_journeyos_generate().
+     *  4. On success, update email_states and return the result.
+     *     (JourneyOS also logs the email to rtr_email_tracking via its
+     *      WordPress client, so the DB tracking record is created server-side.)
+     *
+     * @param WP_REST_Request $request Request object
+     * @return WP_REST_Response|WP_Error
+     */
+    public function journeyos_generate( $request ) {
+        global $wpdb;
+
+        $prospect_id = absint( $request->get_param( 'prospect_id' ) );
+        $room_type   = sanitize_text_field( $request->get_param( 'room_type' ) );
+
+        // --- 1. Look up the prospect ---
+        $prospects_table = $wpdb->prefix . 'rtr_prospects';
+        $prospect = $wpdb->get_row( $wpdb->prepare(
+            "SELECT p.*, c.id as campaign_id
+             FROM {$prospects_table} p
+             INNER JOIN {$wpdb->prefix}dr_campaign_settings c ON p.campaign_id = c.id
+             WHERE p.id = %d AND p.archived_at IS NULL",
+            $prospect_id
+        ) );
+
+        if ( ! $prospect ) {
+            return new WP_Error(
+                'prospect_not_found',
+                'Prospect not found or has been archived.',
+                array( 'status' => 404 )
+            );
+        }
+
+        $campaign_id = (int) ( $prospect->campaign_id ?? 0 );
+        if ( empty( $room_type ) ) {
+            $room_type = $prospect->current_room ?? 'problem';
+        }
+
+        // --- 2. Determine next email number ---
+        $email_states = json_decode( $prospect->email_states, true );
+        if ( ! is_array( $email_states ) ) {
+            $email_states = array();
+        }
+
+        $email_number = $this->get_next_email_number( $email_states, $room_type );
+        if ( $email_number === null ) {
+            return new WP_Error(
+                'no_pending_emails',
+                'All emails for this prospect have already been generated or sent.',
+                array( 'status' => 400 )
+            );
+        }
+
+        // --- 3. Set state to 'generating' ---
+        $state_key = "{$room_type}_{$email_number}";
+        $original_state = $email_states[ $state_key ] ?? 'pending';
+        $email_states[ $state_key ] = 'generating';
+        $wpdb->update(
+            $prospects_table,
+            array( 'email_states' => wp_json_encode( $email_states ) ),
+            array( 'id' => $prospect_id ),
+            array( '%s' ),
+            array( '%d' )
+        );
+
+        // --- 4. Call JourneyOS ---
+        $journeyos_result = $this->call_journeyos_generate( $prospect_id, $campaign_id );
+
+        if ( is_wp_error( $journeyos_result ) ) {
+            // Rollback state
+            $email_states[ $state_key ] = $original_state;
+            $wpdb->update(
+                $prospects_table,
+                array( 'email_states' => wp_json_encode( $email_states ) ),
+                array( 'id' => $prospect_id ),
+                array( '%s' ),
+                array( '%d' )
+            );
+
+            return $journeyos_result;
+        }
+
+        // --- 5. Success — update state to 'ready' ---
+        $email_states[ $state_key ] = 'ready';
+        $wpdb->update(
+            $prospects_table,
+            array( 'email_states' => wp_json_encode( $email_states ) ),
+            array( 'id' => $prospect_id ),
+            array( '%s' ),
+            array( '%d' )
+        );
+
+        return rest_ensure_response( array(
+            'success' => true,
+            'message' => 'Email generated successfully via JourneyOS.',
+            'data'    => array(
+                'prospect_id'        => $prospect_id,
+                'email_number'       => $email_number,
+                'room_type'          => $room_type,
+                'tracking_id'        => $journeyos_result['tracking_id'] ?? null,
+                'content_link_id'    => $journeyos_result['content_link_id'] ?? null,
+                'generation_time_ms' => $journeyos_result['generation_time_ms'] ?? null,
+                'email'              => $journeyos_result['email'] ?? null,
+            ),
+        ) );
+    }
+
+    /**
+     * Call the JourneyOS FastAPI service to generate a single email.
+     *
+     * @param int $prospect_id Prospect ID (rtr_prospects.id)
+     * @param int $campaign_id Campaign ID (dr_campaign_settings.id)
+     * @return array|WP_Error JourneyOS response data or error
+     */
+    private function call_journeyos_generate( $prospect_id, $campaign_id ) {
+        $journeyos_url = rtrim( get_option( 'directreach_journeyos_api_url', '' ), '/' );
+        $journeyos_key = get_option( 'directreach_journeyos_api_key', '' );
+
+        if ( empty( $journeyos_url ) ) {
+            return new WP_Error(
+                'journeyos_not_configured',
+                'JourneyOS API URL is not configured. Set directreach_journeyos_api_url in DirectReach settings.',
+                array( 'status' => 500 )
+            );
+        }
+
+        $endpoint = $journeyos_url . '/api/generate';
+
+        $body = wp_json_encode( array(
+            'prospect_id'      => $prospect_id,
+            'campaign_id'      => $campaign_id,
+            'prospect_data'    => null,
+            'force_regenerate' => false,
+        ) );
+
+        $response = wp_remote_post( $endpoint, array(
+            'timeout' => 30,
+            'headers' => array(
+                'Content-Type' => 'application/json',
+                'X-API-Key'    => $journeyos_key,
+            ),
+            'body' => $body,
+        ) );
+
+        if ( is_wp_error( $response ) ) {
+            error_log( '[JourneyOS] wp_remote_post failed: ' . $response->get_error_message() );
+            return new WP_Error(
+                'journeyos_request_failed',
+                'Failed to connect to JourneyOS: ' . $response->get_error_message(),
+                array( 'status' => 502 )
+            );
+        }
+
+        $status_code   = wp_remote_retrieve_response_code( $response );
+        $response_body = wp_remote_retrieve_body( $response );
+        $data          = json_decode( $response_body, true );
+
+        if ( $status_code >= 400 || ( isset( $data['status'] ) && $data['status'] === 'error' ) ) {
+            $error_msg = $data['error'] ?? $data['message'] ?? "JourneyOS returned HTTP {$status_code}";
+            error_log( "[JourneyOS] Error for prospect {$prospect_id}: {$error_msg}" );
+            return new WP_Error(
+                'journeyos_generation_failed',
+                $error_msg,
+                array( 'status' => $status_code >= 400 ? $status_code : 500 )
+            );
+        }
+
+        if ( empty( $data ) || ( isset( $data['status'] ) && $data['status'] !== 'success' ) ) {
+            return new WP_Error(
+                'journeyos_invalid_response',
+                $data['error'] ?? 'Invalid response from JourneyOS',
+                array( 'status' => 500 )
+            );
+        }
+
+        return $data;
+    }
+
+    /**
+     * Check if a prospect has had a non-failed email generated within the last N days.
+     *
+     * Used by batch_generate_cis to implement the 7-day skip logic.
+     * Static so it can be called from other classes if needed.
+     *
+     * @param int $prospect_id Prospect ID (rtr_prospects.id)
+     * @param int $days        Number of days to look back (default 7)
+     * @return bool True if a recent email exists (should be skipped)
+     */
+    public static function prospect_has_recent_email( $prospect_id, $days = 7 ) {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'rtr_email_tracking';
+
+        $count = (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COUNT(*)
+                 FROM {$table}
+                 WHERE prospect_id = %d
+                   AND created_at >= DATE_SUB( NOW(), INTERVAL %d DAY )
+                   AND status NOT IN ( 'failed', 'error' )",
+                $prospect_id,
+                $days
+            )
+        );
+
+        return $count > 0;
+    }
 
     /**
      * Get existing email from tracking if available

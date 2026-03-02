@@ -69,9 +69,9 @@ wp_localize_script(
     array(
         'siteUrl'      => esc_url(get_site_url()),
         'nonce'        => wp_create_nonce('wp_rest'),
-        'restUrl'      => esc_url(rest_url('directreach/v1/reading-room')), // change to v1/reading-room
+        'restUrl'      => esc_url(rest_url('directreach/v1/reading-room')),
         'apiUrl'       => esc_url(rest_url('directreach/v1/reading-room')),
-        'emailApiUrl'  => esc_url(rest_url('directreach/v2')),              // for email endpoints
+        'emailApiUrl'  => esc_url(rest_url('directreach/v2')),
         'cisApiUrl'    => esc_url(get_option('directreach_cis_server_url', '')),
         'ajaxUrl'      => admin_url('admin-ajax.php'),
         'userId'       => get_current_user_id(),
@@ -228,7 +228,7 @@ if (!is_array($clients)) {
                         <div class="room-detail-header">
                             <h3><i class="fas fa-exclamation-triangle"></i> Problem Room <span class="room-count-badge">0</span></h3>
                             <div style="display: flex; align-items: center; gap: 8px;">
-                            <button class="rtr-batch-generate-btn" data-room="problem" title="Generate next email for all prospects in this room">
+                            <button class="rtr-batch-generate-btn" data-room="problem" title="Generate next email for all prospects in this room (skips if email sent in last 7 days)">
                                 <i class="fas fa-magic"></i>
                             </button>                            
                             <select id="problem-room-sort" class="sort-dropdown" data-room="problem">
@@ -248,7 +248,7 @@ if (!is_array($clients)) {
                         <div class="room-detail-header">
                             <h3><i class="fas fa-lightbulb"></i> Solution Room <span class="room-count-badge">0</span></h3>
                             <div style="display: flex; align-items: center; gap: 8px;">
-                            <button class="rtr-batch-generate-btn" data-room="solution" title="Generate next email for all prospects in this room">
+                            <button class="rtr-batch-generate-btn" data-room="solution" title="Generate next email for all prospects in this room (skips if email sent in last 7 days)">
                                 <i class="fas fa-magic"></i>
                             </button>
                             <select id="solution-room-sort" class="sort-dropdown" data-room="solution">
@@ -267,7 +267,7 @@ if (!is_array($clients)) {
                         <div class="room-detail-header">
                             <h3><i class="fas fa-handshake"></i> Offer Room <span class="room-count-badge">0</span></h3>
                             <div style="display: flex; align-items: center; gap: 8px;">
-                            <button class="rtr-batch-generate-btn" data-room="offer" title="Generate next email for all prospects in this room">
+                            <button class="rtr-batch-generate-btn" data-room="offer" title="Generate next email for all prospects in this room (skips if email sent in last 7 days)">
                                 <i class="fas fa-magic"></i>
                             </button>                                
                             <select id="offer-room-sort" class="sort-dropdown" data-room="offer">

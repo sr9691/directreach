@@ -3,6 +3,8 @@
  * 
  * Manages prospect list display, filtering, and actions
  * Now includes 5-state independent email button system
+ * Added: JourneyOS single email generation button per prospect
+ * Added: 7-day skip logic for batch email generation
  */
 
 export default class ProspectManager {
@@ -102,6 +104,16 @@ export default class ProspectManager {
                 const visitorId = infoBtn.dataset.visitorId;
                 const room = infoBtn.dataset.room;
                 this.handleInfoClick(visitorId, room);
+            }
+
+            // JourneyOS generate button
+            const journeyBtn = e.target.closest('.rtr-journeyos-btn');
+            if (journeyBtn) {
+                e.preventDefault();
+                const prospectId = journeyBtn.dataset.prospectId;
+                const visitorId = journeyBtn.dataset.visitorId;
+                const room = journeyBtn.dataset.room;
+                this.handleJourneyOSGenerate(prospectId, visitorId, room, journeyBtn);
             }
 
             // Archive/Delete button
@@ -628,6 +640,16 @@ export default class ProspectManager {
         const actionsContainer = document.createElement('div');
         actionsContainer.className = 'rtr-prospect-actions';
 
+        // JourneyOS Generate Button (to the left of info)
+        const journeyBtn = document.createElement('button');
+        journeyBtn.className = 'rtr-action-btn rtr-journeyos-btn';
+        journeyBtn.innerHTML = '<i class="fas fa-magic"></i>';
+        journeyBtn.title = 'Generate Email (JourneyOS)';
+        journeyBtn.dataset.prospectId = prospect.id;
+        journeyBtn.dataset.visitorId = prospect.visitor_id || prospect.id;
+        journeyBtn.dataset.room = room;
+        actionsContainer.appendChild(journeyBtn);
+
         // Info Button
         const infoBtn = document.createElement('button');
         infoBtn.className = 'rtr-action-btn rtr-info-btn';
@@ -797,6 +819,8 @@ export default class ProspectManager {
     /**
      * Handle batch email generation for all prospects in a room.
      * Calls WordPress PHP endpoint which proxies to CIS server.
+     * Now includes 7-day skip logic: prospects with an email generated
+     * in the last 7 days are skipped.
      *
      * @param {string} room - Room type (problem/solution/offer)
      * @param {HTMLElement} button - The clicked button element
@@ -810,7 +834,7 @@ export default class ProspectManager {
             const prospectCount = this.pagination[room]?.totalCount || this.prospects[room]?.length || 0;
             const confirmed = await this.uiManager.confirmAction(
                 'Generate Emails',
-                `Generate the next email for all eligible prospects in the ${room} room? (${prospectCount} prospects total)\n\nThis may take several minutes depending on the number of prospects.`,
+                `Generate the next email for all eligible prospects in the ${room} room? (${prospectCount} prospects total)\n\nProspects who had an email generated within the last 7 days will be skipped.\n\nThis may take several minutes depending on the number of prospects.`,
                 'Generate',
                 'Cancel'
             );
@@ -858,6 +882,7 @@ export default class ProspectManager {
                 body: JSON.stringify({
                     room_type: room,
                     client_id: clientId,
+                    skip_if_recent_days: 7
                 })
             });
 
@@ -1149,16 +1174,19 @@ export default class ProspectManager {
         button.className = `rtr-email-btn ${this.getEmailButtonClass(newState)}`;
         
         // Update icon
-        const icon = button.querySelector('i');
-        if (icon) {
-            icon.className = this.getEmailButtonIcon(newState);
+        const icon = button.querySelector('i') || document.createElement('i');
+        icon.className = this.getEmailButtonIcon(newState);
+        if (!button.contains(icon)) {
+            button.innerHTML = '';
+            button.appendChild(icon);
         }
         
-        // Update badges
-        button.querySelectorAll('.rtr-sent-badge, .rtr-opened-badge').forEach(b => b.remove());
-        if (newState === 'sent') {
-            button.insertAdjacentHTML('beforeend', '<span class="rtr-sent-badge">✓</span>');
-        } else if (newState === 'opened') {
+        // Remove old badges
+        const existingBadge = button.querySelector('.rtr-opened-badge');
+        if (existingBadge) existingBadge.remove();
+        
+        // Add badge for opened state
+        if (newState === 'opened') {
             button.insertAdjacentHTML('beforeend', '<span class="rtr-opened-badge">👁</span>');
         }
         
@@ -1210,6 +1238,142 @@ export default class ProspectManager {
         document.dispatchEvent(new CustomEvent('rtr:showProspectInfo', {
             detail: { visitorId, room }
         }));
+    }
+
+    /**
+     * Handle JourneyOS single email generation for a prospect.
+     * Calls WordPress PHP proxy endpoint which forwards to JourneyOS API.
+     * On success, updates the email button state and opens the email modal.
+     *
+     * @param {String} prospectId - Prospect DB ID
+     * @param {String} visitorId  - Visitor ID (used for button lookups)
+     * @param {String} room       - Current room (problem/solution/offer)
+     * @param {HTMLElement} button - The clicked button element
+     */
+    async handleJourneyOSGenerate(prospectId, visitorId, room, button) {
+        // Prevent double-clicks
+        if (button.disabled) return;
+
+        // Debounce (500ms)
+        const debounceKey = `journeyos-${prospectId}`;
+        const now = Date.now();
+        const lastClick = this.buttonDebounce.get(debounceKey) || 0;
+        if (now - lastClick < 500) return;
+        this.buttonDebounce.set(debounceKey, now);
+
+        // Disable button, show spinner
+        const originalHTML = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+        if (this.uiManager) {
+            this.uiManager.notify('Generating email via JourneyOS...', 'info');
+        }
+
+        try {
+            // Build the WordPress proxy endpoint URL (lives in directreach/v2 email controller)
+            let baseUrl = this.config?.emailApiUrl || '';
+            if (!baseUrl) {
+                baseUrl = this.apiUrl;
+                if (baseUrl.includes('/wp-json')) {
+                    baseUrl = baseUrl.split('/wp-json')[0];
+                }
+                baseUrl = `${baseUrl}/wp-json/directreach/v2`;
+            }
+            const apiEndpoint = `${baseUrl}/emails/journeyos-generate`;
+
+            const response = await fetch(apiEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-WP-Nonce': this.nonce
+                },
+                body: JSON.stringify({
+                    prospect_id: parseInt(prospectId, 10),
+                    room_type: room
+                })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                let errorMsg;
+                try {
+                    const errorData = JSON.parse(errorText);
+                    errorMsg = errorData.message || errorData.data?.message || `Server error: ${response.status}`;
+                } catch {
+                    errorMsg = `Server error: ${response.status}`;
+                }
+                throw new Error(errorMsg);
+            }
+
+            const data = await response.json();
+
+            if (!data.success) {
+                throw new Error(data.message || 'JourneyOS email generation failed');
+            }
+
+            // Determine which email number was generated
+            const emailNumber = data.data?.email_number || this.getNextPendingEmailNumber(visitorId, room);
+
+            // Update the email button state to 'ready'
+            this.updateButtonState(visitorId, emailNumber, 'ready');
+
+            if (this.uiManager) {
+                this.uiManager.notify('Email generated! Opening preview...', 'success');
+            }
+
+            // Get prospect name for modal
+            const prospectCard = document.querySelector(`[data-prospect-id="${prospectId}"]`);
+            let prospectName = 'Prospect';
+            if (prospectCard) {
+                const nameEl = prospectCard.querySelector('.rtr-prospect-name');
+                if (nameEl) prospectName = nameEl.textContent.trim();
+            }
+
+            // Open the email modal to show the generated email
+            document.dispatchEvent(new CustomEvent('rtr:view-ready-email', {
+                detail: {
+                    prospectId: visitorId,
+                    emailNumber: emailNumber,
+                    prospectName: prospectName,
+                    room: room
+                }
+            }));
+
+        } catch (error) {
+            console.error('JourneyOS generation failed:', error);
+
+            if (this.uiManager) {
+                this.uiManager.notify(`JourneyOS generation failed: ${error.message}`, 'error');
+            }
+        } finally {
+            // Restore button
+            button.disabled = false;
+            button.innerHTML = originalHTML;
+        }
+    }
+
+    /**
+     * Find the next pending email number for a prospect.
+     * Used as a fallback when the API response doesn't include email_number.
+     *
+     * @param {String} visitorId - Visitor ID
+     * @param {String} room - Room name
+     * @returns {Number} Next pending email number (1-5), defaults to 1
+     */
+    getNextPendingEmailNumber(visitorId, room) {
+        const prospects = this.prospects[room] || [];
+        const prospect = prospects.find(p =>
+            (p.visitor_id || p.id) == visitorId
+        );
+        if (!prospect) return 1;
+
+        const states = prospect.email_states || {};
+        for (let i = 1; i <= 5; i++) {
+            const s = states[`email_${i}`]?.state || 'pending';
+            if (s === 'pending' || s === 'failed') return i;
+        }
+        return 1;
     }
 
     async handleArchiveClick(visitorId, room) {

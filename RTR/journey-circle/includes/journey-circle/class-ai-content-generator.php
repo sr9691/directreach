@@ -189,10 +189,10 @@ class DR_AI_Content_Generator {
         $prompt = $this->build_problem_titles_prompt( $args );
 
         // Log the full prompt for debugging title generation issues.
-        error_log( "[JC AI] generate_problem_titles PROMPT START >>>>" );
-        error_log( $prompt );
-        error_log( "[JC AI] generate_problem_titles PROMPT END <<<<" );
-
+        // error_log( "[JC AI] generate_problem_titles PROMPT START >>>>" );
+        // error_log( $prompt );
+        // error_log( "[JC AI] generate_problem_titles PROMPT END <<<<" );
+        
         // Call Gemini API with higher token limit for structured multi-object response.
         error_log( "[JC AI] generate_problem_titles API CALL — sending to Gemini ({$this->model})" );
         $response = $this->call_gemini_api( $prompt );
@@ -203,7 +203,7 @@ class DR_AI_Content_Generator {
         }
 
         // Log raw response for debugging truncation/parse issues.
-        error_log( "[JC AI] generate_problem_titles RAW RESPONSE (" . strlen( $response ) . " bytes): " . substr( $response, 0, 500 ) );
+        // error_log( "[JC AI] generate_problem_titles RAW RESPONSE (" . strlen( $response ) . " bytes): " . substr( $response, 0, 500 ) );
 
         // Parse response into title array.
         $titles = $this->parse_titles_response( $response, 'problems' );
