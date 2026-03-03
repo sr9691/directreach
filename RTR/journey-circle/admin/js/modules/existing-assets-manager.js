@@ -18,7 +18,7 @@
         constructor(workflow) {
             this.workflow = workflow;
             this.assets = [];
-            this.allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/html', 'image/jpeg', 'image/png', 'image/gif'];
+            this.allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
             this.maxFileSize = 10 * 1024 * 1024; // 10MB
 
             this.init();
@@ -102,13 +102,6 @@
                 return;
             }
 
-            // HTML files can't be uploaded to WordPress media library (security restriction)
-            // Read them as text and store the content inline
-            const ext = file.name.split('.').pop().toLowerCase();
-            if (['html', 'htm', 'txt'].includes(ext)) {
-                return this.handleTextFile(file);
-            }
-
             // Show loading state
             const loadingId = this.addLoadingAsset(file.name);
 
@@ -150,14 +143,20 @@
                         fileId: data.id,
                         size: file.size,
                         mimeType: file.type,
+                        _extractionStatus: 'processing',
+                        _extractionChars: 0,
                         addedAt: new Date().toISOString()
                     });
 
                     this.renderAssetList();
                     this.updateAssetCount();
                     this.saveToWorkflow();
+                    this.updateNextButton();
 
-                    this.workflow.showNotification('Asset "' + file.name + '" uploaded successfully', 'success');
+                    this.workflow.showNotification('Asset "' + file.name + '" uploaded — extracting content...', 'info');
+
+                    // Trigger extraction immediately in background
+                    this.triggerExtraction(data.id, file.name);
                 } else {
                     let errorMsg = 'Upload failed (HTTP ' + response.status + ')';
                     try {
@@ -171,41 +170,6 @@
                 this.removeLoadingAsset(loadingId);
                 this.workflow.showNotification('Error uploading "' + file.name + '": ' + error.message, 'error');
                 console.error('Asset upload error:', error);
-            }
-        }
-
-        /**
-         * Handle HTML/TXT files by reading content inline
-         * WordPress blocks HTML uploads to the media library for security (XSS prevention)
-         */
-        async handleTextFile(file) {
-            const loadingId = this.addLoadingAsset(file.name);
-
-            try {
-                const content = await file.text();
-
-                this.removeLoadingAsset(loadingId);
-
-                this.assets.push({
-                    type: 'html_content',
-                    value: '', // No media URL for inline content
-                    name: file.name,
-                    fileId: null,
-                    size: file.size,
-                    mimeType: file.type || 'text/html',
-                    content: content, // Store the actual file content
-                    addedAt: new Date().toISOString()
-                });
-
-                this.renderAssetList();
-                this.updateAssetCount();
-                this.saveToWorkflow();
-
-                this.workflow.showNotification('Asset "' + file.name + '" added successfully (stored as content)', 'success');
-            } catch (error) {
-                this.removeLoadingAsset(loadingId);
-                this.workflow.showNotification('Error reading "' + file.name + '": ' + error.message, 'error');
-                console.error('Text file read error:', error);
             }
         }
 
@@ -278,7 +242,7 @@
             if (this.allowedTypes.length > 0 && !this.allowedTypes.includes(file.type)) {
                 return {
                     valid: false,
-                    message: `File type "${file.type || 'unknown'}" is not supported. Allowed: PDF, DOC, HTML, Images`
+                    message: `File type "${file.type || 'unknown'}" is not supported. Allowed: PDF, DOCX`
                 };
             }
 
@@ -318,7 +282,7 @@
         }
 
         /**
-         * Render the asset list
+         * Render the asset list with extraction status badges
          */
         renderAssetList() {
             const $list = $('#jc-asset-list');
@@ -342,14 +306,20 @@
                     ? `<a href="${this.escapeHtml(asset.value)}" target="_blank" rel="noopener noreferrer" class="jc-asset-url-link">${this.escapeHtml(asset.value)}</a>`
                     : (size ? `<span class="jc-asset-meta">${size}</span>` : '');
 
+                // Extraction status badge
+                const statusBadge = this.getExtractionBadge(asset);
+
                 $list.append(`
-                    <div class="jc-asset-item" data-index="${index}">
+                    <div class="jc-asset-item" data-index="${index}" data-file-id="${asset.fileId || ''}">
                         <div class="jc-asset-icon">
                             <i class="fas ${icon}"></i>
                         </div>
                         <div class="jc-asset-info">
                             <span class="jc-asset-name">${this.escapeHtml(asset.name)}</span>
                             ${meta}
+                        </div>
+                        <div class="jc-asset-extraction-status">
+                            ${statusBadge}
                         </div>
                         <div class="jc-asset-actions">
                             <button class="jc-asset-delete" data-index="${index}" title="Remove asset">
@@ -359,6 +329,187 @@
                     </div>
                 `);
             });
+
+            // Check extraction status for file assets that have fileIds
+            this.checkExtractionStatus();
+        }
+
+        /**
+         * Get extraction status badge HTML for an asset
+         */
+        getExtractionBadge(asset) {
+            const status = asset._extractionStatus || 'unknown';
+            const chars = asset._extractionChars || 0;
+
+            switch (status) {
+                case 'completed':
+                case 'extracted':
+                    const charsDisplay = chars > 1000
+                        ? (chars / 1000).toFixed(1) + 'k'
+                        : chars;
+                    return `<span class="jc-extraction-badge jc-extraction-success" title="Content extracted (${chars} chars)">
+                        <i class="fas fa-check-circle"></i> Extracted${chars ? ' (' + charsDisplay + ' chars)' : ''}
+                    </span>`;
+                case 'processing':
+                    return `<span class="jc-extraction-badge jc-extraction-processing" title="Extracting content...">
+                        <i class="fas fa-spinner fa-spin"></i> Extracting...
+                    </span>`;
+                case 'failed':
+                    return `<span class="jc-extraction-badge jc-extraction-failed" title="Extraction failed — content will not be used for AI generation">
+                        <i class="fas fa-exclamation-triangle"></i> Failed
+                    </span>`;
+                case 'pending':
+                    return `<span class="jc-extraction-badge jc-extraction-pending" title="Content will be extracted when titles are generated">
+                        <i class="fas fa-clock"></i> Pending
+                    </span>`;
+                default:
+                    // Files and URLs — status not yet known, show pending
+                    return `<span class="jc-extraction-badge jc-extraction-pending" title="Content will be extracted when titles are generated">
+                        <i class="fas fa-clock"></i> Pending
+                    </span>`;
+            }
+        }
+
+        /**
+         * Check extraction status for all file assets via REST API
+         */
+        async checkExtractionStatus() {
+            const fileAssets = this.assets.filter(a => a.type === 'file' && a.fileId);
+            if (fileAssets.length === 0) return;
+
+            const fileIds = fileAssets.map(a => a.fileId);
+
+            try {
+                const response = await fetch(`${this.workflow.config.restUrl}/ai/extraction-status`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-WP-Nonce': this.workflow.config.restNonce
+                    },
+                    body: JSON.stringify({ file_ids: fileIds })
+                });
+
+                if (!response.ok) return;
+
+                const data = await response.json();
+                if (!data.items || !data.items.length) return;
+
+                let updated = false;
+
+                data.items.forEach(item => {
+                    const asset = this.assets.find(a => a.fileId === item.fileId);
+                    if (asset) {
+                        const oldStatus = asset._extractionStatus;
+                        asset._extractionStatus = item.status === 'completed' ? 'extracted' : item.status;
+                        asset._extractionChars = item.chars || 0;
+
+                        if (oldStatus !== asset._extractionStatus) {
+                            updated = true;
+                        }
+                    }
+                });
+
+                // Re-render badges if any status changed (without re-checking to avoid loop)
+                if (updated) {
+                    this.assets.forEach((asset, index) => {
+                        const $item = $(`#jc-asset-list .jc-asset-item[data-index="${index}"]`);
+                        if ($item.length) {
+                            $item.find('.jc-asset-extraction-status').html(this.getExtractionBadge(asset));
+                        }
+                    });
+                }
+
+                // Console log summary
+                const extracted = data.items.filter(i => i.status === 'completed').length;
+                const pending = data.items.filter(i => !i.status || i.status === 'pending' || i.status === 'none').length;
+                const failed = data.items.filter(i => i.status === 'failed').length;
+                const totalChars = data.items.reduce((sum, i) => sum + (i.chars || 0), 0);
+
+                console.log(`[JC Assets] Extraction status: ${extracted}/${fileAssets.length} extracted (${totalChars.toLocaleString()} chars), ${pending} pending, ${failed} failed`);
+
+            } catch (error) {
+                console.warn('[JC Assets] Could not check extraction status:', error.message);
+            }
+        }
+
+        /**
+         * Trigger server-side extraction for a file asset immediately after upload.
+         * Disables the Next button until extraction completes.
+         */
+        async triggerExtraction(fileId, fileName) {
+            try {
+                console.log(`[JC Assets] Triggering extraction for "${fileName}" (ID: ${fileId})...`);
+
+                const response = await fetch(`${this.workflow.config.restUrl}/ai/extract-asset`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-WP-Nonce': this.workflow.config.restNonce
+                    },
+                    body: JSON.stringify({ file_id: fileId })
+                });
+
+                const data = await response.json();
+                const asset = this.assets.find(a => a.fileId === fileId);
+
+                if (data.success && data.status === 'completed') {
+                    console.log(`[JC Assets] ✅ Extraction complete for "${fileName}": ${data.chars.toLocaleString()} chars`);
+
+                    if (asset) {
+                        asset._extractionStatus = 'extracted';
+                        asset._extractionChars = data.chars || 0;
+                    }
+
+                    this.workflow.showNotification(`"${fileName}" content extracted (${data.chars.toLocaleString()} chars)`, 'success');
+                } else {
+                    console.error(`[JC Assets] ❌ Extraction failed for "${fileName}":`, data.error || 'Unknown error');
+
+                    if (asset) {
+                        asset._extractionStatus = 'failed';
+                        asset._extractionChars = 0;
+                    }
+
+                    this.workflow.showNotification(`Content extraction failed for "${fileName}". The file may still be used but with reduced effectiveness.`, 'error');
+                }
+            } catch (error) {
+                console.error(`[JC Assets] Extraction error for "${fileName}":`, error);
+
+                const asset = this.assets.find(a => a.fileId === fileId);
+                if (asset) {
+                    asset._extractionStatus = 'failed';
+                    asset._extractionChars = 0;
+                }
+
+                this.workflow.showNotification(`Content extraction error for "${fileName}".`, 'error');
+            }
+
+            // Update badge and Next button regardless of outcome
+            this.renderAssetList();
+            this.updateNextButton();
+        }
+
+        /**
+         * Disable/enable the Next button based on whether any assets are still extracting.
+         */
+        updateNextButton() {
+            const extracting = this.assets.some(a => a._extractionStatus === 'processing');
+            const $nextBtn = $('.jc-next-btn');
+
+            if (extracting) {
+                $nextBtn.prop('disabled', true).addClass('jc-btn-extracting');
+                // Add a tooltip-style message if not already present
+                if (!$nextBtn.data('original-text')) {
+                    $nextBtn.data('original-text', $nextBtn.html());
+                }
+                $nextBtn.html('<i class="fas fa-spinner fa-spin"></i> Extracting content...');
+            } else {
+                $nextBtn.prop('disabled', false).removeClass('jc-btn-extracting');
+                const original = $nextBtn.data('original-text');
+                if (original) {
+                    $nextBtn.html(original);
+                    $nextBtn.removeData('original-text');
+                }
+            }
         }
 
         /**
@@ -374,6 +525,7 @@
             this.renderAssetList();
             this.updateAssetCount();
             this.saveToWorkflow();
+            this.updateNextButton();
 
             this.workflow.showNotification('Asset removed', 'info');
         }
@@ -399,6 +551,14 @@
             const existingAssets = this.workflow.getState('existingAssets');
             if (existingAssets && existingAssets.length > 0) {
                 this.assets = existingAssets;
+
+                // Reset any stuck 'processing' states from a previous page load
+                this.assets.forEach(a => {
+                    if (a._extractionStatus === 'processing') {
+                        a._extractionStatus = 'pending';
+                    }
+                });
+
                 this.renderAssetList();
                 this.updateAssetCount();
             }
@@ -446,17 +606,11 @@
 
             const ext = asset.name ? asset.name.split('.').pop().toLowerCase() : '';
 
-            if (asset.mimeType?.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
-                return 'fa-file-image';
-            }
             if (asset.mimeType === 'application/pdf' || ext === 'pdf') {
                 return 'fa-file-pdf';
             }
             if (asset.mimeType?.includes('word') || ['doc', 'docx'].includes(ext)) {
                 return 'fa-file-word';
-            }
-            if (asset.mimeType === 'text/html' || ext === 'html') {
-                return 'fa-file-code';
             }
             return 'fa-file';
         }

@@ -316,13 +316,13 @@ if (!$client) {
                                 type="file" 
                                 id="jc-asset-input" 
                                 multiple 
-                                accept=".pdf,.doc,.docx,.html,.jpg,.jpeg,.png"
+                                accept=".pdf,.doc,.docx"
                                 style="display: none;"
                             />
                             <label for="jc-asset-input" class="jc-file-upload-label">
                                 <i class="fas fa-cloud-upload-alt"></i>
                                 <p><?php esc_html_e('Click to upload or drag and drop existing assets', 'directreach-campaign-builder'); ?></p>
-                                <span class="jc-file-types"><?php esc_html_e('PDF, DOC, HTML, Images', 'directreach-campaign-builder'); ?></span>
+                                <span class="jc-file-types"><?php esc_html_e('PDF, DOCX', 'directreach-campaign-builder'); ?></span>
                             </label>
                         </div>
                     </div>
@@ -429,8 +429,8 @@ if (!$client) {
             <!-- Step 5: Primary Problem Selection -->
             <div class="jc-step-container" id="jc-step-5" style="display: none;">
                 <div class="jc-step-header">
-                    <h2><?php esc_html_e('Step 5: Designate Primary Problem', 'directreach-campaign-builder'); ?></h2>
-                    <p><?php esc_html_e('Select the main problem that your service area addresses. This will be the center of your journey circle.', 'directreach-campaign-builder'); ?></p>
+                    <h2><?php esc_html_e('Step 5: Define Your Primary Problem', 'directreach-campaign-builder'); ?></h2>
+                    <p><?php esc_html_e('AI will analyze your uploaded content to generate buyer-centered problem statements. Select the one that best captures the core pain your service area solves — this anchors all downstream content.', 'directreach-campaign-builder'); ?></p>
                 </div>
                 
                 <div class="jc-step-content">

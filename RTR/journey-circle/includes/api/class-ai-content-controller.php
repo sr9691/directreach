@@ -64,6 +64,23 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
      * Register REST API routes.
      */
     public function register_routes() {
+        // POST /ai/generate-primary-problems
+        register_rest_route( $this->namespace, '/' . $this->rest_base . '/generate-primary-problems', array(
+            array(
+                'methods'             => WP_REST_Server::CREATABLE,
+                'callback'            => array( $this, 'generate_primary_problems' ),
+                'permission_callback' => array( $this, 'check_permissions' ),
+                'args'                => array(
+                    'service_area_id'   => array( 'type' => 'integer', 'default' => 0 ),
+                    'service_area_name' => array( 'type' => 'string', 'default' => '' ),
+                    'industries'        => array( 'type' => 'array', 'default' => array() ),
+                    'brain_content'     => array( 'type' => 'array', 'default' => array() ),
+                    'existing_assets'   => array( 'type' => 'array', 'default' => array() ),
+                    'force_refresh'     => array( 'type' => 'boolean', 'default' => false ),
+                ),
+            ),
+        ) );
+
         // POST /ai/generate-problem-titles
         register_rest_route( $this->namespace, '/' . $this->rest_base . '/generate-problem-titles', array(
             array(
@@ -90,6 +107,40 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
                 'methods'             => WP_REST_Server::READABLE,
                 'callback'            => array( $this, 'check_status' ),
                 'permission_callback' => array( $this, 'check_permissions' ),
+            ),
+        ) );
+
+        // POST /ai/extraction-status — check extraction status for asset file IDs.
+        register_rest_route( $this->namespace, '/' . $this->rest_base . '/extraction-status', array(
+            array(
+                'methods'             => WP_REST_Server::CREATABLE,
+                'callback'            => array( $this, 'check_extraction_status' ),
+                'permission_callback' => array( $this, 'check_permissions' ),
+                'args'                => array(
+                    'file_ids' => array(
+                        'required'          => true,
+                        'validate_callback' => function( $param ) {
+                            return is_array( $param );
+                        },
+                    ),
+                ),
+            ),
+        ) );
+
+        // POST /ai/extract-asset — trigger extraction for a single attachment.
+        register_rest_route( $this->namespace, '/' . $this->rest_base . '/extract-asset', array(
+            array(
+                'methods'             => WP_REST_Server::CREATABLE,
+                'callback'            => array( $this, 'extract_asset' ),
+                'permission_callback' => array( $this, 'check_permissions' ),
+                'args'                => array(
+                    'file_id' => array(
+                        'required'          => true,
+                        'validate_callback' => function( $param ) {
+                            return is_numeric( $param ) && absint( $param ) > 0;
+                        },
+                    ),
+                ),
             ),
         ) );
 
@@ -160,6 +211,89 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
      * @param WP_REST_Request $request Full details about the request.
      * @return WP_REST_Response|WP_Error Response object or error.
      */
+
+    // =========================================================================
+    // STEP 5: PRIMARY PROBLEM
+    // =========================================================================
+
+    /**
+     * Generate Primary Problem statement candidates.
+     *
+     * @since 2.2.0
+     * @param WP_REST_Request $request Request object.
+     * @return WP_REST_Response Response.
+     */
+    public function generate_primary_problems( $request ) {
+        // Extend PHP execution time — this prompt is large and Gemini needs time.
+        if ( function_exists( 'set_time_limit' ) ) {
+            @set_time_limit( 120 );
+        }
+
+        $args = array(
+            'service_area_id'   => absint( $request->get_param( 'service_area_id' ) ),
+            'service_area_name' => sanitize_text_field( $request->get_param( 'service_area_name' ) ?? '' ),
+            'industries'        => $this->sanitize_array_param( $request->get_param( 'industries' ) ),
+            'brain_content'     => $this->sanitize_brain_content_param( $request->get_param( 'brain_content' ) ),
+            'existing_assets'   => $this->sanitize_existing_assets_param( $request->get_param( 'existing_assets' ) ),
+            'force_refresh'     => (bool) $request->get_param( 'force_refresh' ),
+        );
+
+        // Enrich content.
+        $args['brain_content']   = $this->enrich_brain_content_with_extracts( $args['brain_content'] );
+        $args['existing_assets'] = $this->enrich_existing_assets( $args['existing_assets'] );
+
+        $extraction_stats = $this->compute_extraction_stats( $args['existing_assets'] );
+
+        error_log( '[JC API] generate_primary_problems — calling generator...' );
+
+        // Generate.
+        $result = $this->generator->generate_primary_problems( $args );
+
+        error_log( '[JC API] generate_primary_problems — generator returned: ' . ( is_wp_error( $result ) ? 'WP_Error: ' . $result->get_error_message() : 'success (' . count( $result['statements'] ?? [] ) . ' statements)' ) );
+
+        if ( is_wp_error( $result ) ) {
+            $status_code = 500;
+            $error_code  = $result->get_error_code();
+
+            $code_status_map = array(
+                'api_not_configured'  => 503,
+                'api_timeout'         => 504,
+                'api_rate_limited'    => 429,
+                'api_unauthorized'    => 401,
+                'missing_service_area' => 400,
+            );
+
+            if ( isset( $code_status_map[ $error_code ] ) ) {
+                $status_code = $code_status_map[ $error_code ];
+            }
+
+            return new WP_REST_Response( array(
+                'success'          => false,
+                'error'            => $result->get_error_message(),
+                'code'             => $error_code,
+                'extraction_stats' => $extraction_stats,
+            ), $status_code );
+        }
+
+        return new WP_REST_Response( array(
+            'success'          => true,
+            'statements'       => $result['statements'] ?? array(),
+            'best_pick'        => $result['best_pick'] ?? null,
+            'extracted_fields' => $result['extracted_fields'] ?? array(),
+            'extraction_stats' => $extraction_stats,
+        ), 200 );
+    }
+
+    // =========================================================================
+    // STEP 6: PROBLEM TITLES
+    // =========================================================================
+
+    /**
+     * Generate problem title recommendations for a given service area.
+     *
+     * @param WP_REST_Request $request Full details about the request.
+     * @return WP_REST_Response|WP_Error Response object or error.
+     */
     public function generate_problem_titles( $request ) {
         // Check if AI is configured.
         if ( ! $this->generator->is_configured() ) {
@@ -173,18 +307,22 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
 
         // Extract and prepare arguments.
         $args = array(
-            'service_area_id'   => absint( $request->get_param( 'service_area_id' ) ),
-            'service_area_name' => sanitize_text_field( $request->get_param( 'service_area_name' ) ?? '' ),
-            'industries'        => $this->sanitize_array_param( $request->get_param( 'industries' ) ),
-            'brain_content'     => $this->sanitize_brain_content_param( $request->get_param( 'brain_content' ) ),
-            'existing_assets'   => $this->sanitize_existing_assets_param( $request->get_param( 'existing_assets' ) ),
-            'force_refresh'     => (bool) $request->get_param( 'force_refresh' ),
-            'previous_titles'   => $this->sanitize_array_param( $request->get_param( 'previous_titles' ) ),
+            'service_area_id'            => absint( $request->get_param( 'service_area_id' ) ),
+            'service_area_name'          => sanitize_text_field( $request->get_param( 'service_area_name' ) ?? '' ),
+            'primary_problem_statement'  => sanitize_text_field( $request->get_param( 'primary_problem_statement' ) ?? '' ),
+            'industries'                 => $this->sanitize_array_param( $request->get_param( 'industries' ) ),
+            'brain_content'              => $this->sanitize_brain_content_param( $request->get_param( 'brain_content' ) ),
+            'existing_assets'            => $this->sanitize_existing_assets_param( $request->get_param( 'existing_assets' ) ),
+            'force_refresh'              => (bool) $request->get_param( 'force_refresh' ),
+            'previous_titles'            => $this->sanitize_array_param( $request->get_param( 'previous_titles' ) ),
         );
 
         // Enrich brain content with extracted text from storage.
         $args['brain_content']  = $this->enrich_brain_content_with_extracts( $args['brain_content'] );
-        $args['existing_assets'] = $this->enrich_brain_content_with_extracts( $args['existing_assets'] );        
+        $args['existing_assets'] = $this->enrich_existing_assets( $args['existing_assets'] );
+
+        // Compute extraction stats for frontend visibility.
+        $extraction_stats = $this->compute_extraction_stats( $args['existing_assets'] );
 
         // Generate titles.
         $result = $this->generator->generate_problem_titles( $args );
@@ -211,18 +349,20 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             }
 
             return new WP_REST_Response( array(
-                'success' => false,
-                'error'   => $result->get_error_message(),
-                'code'    => $error_code,
-                'titles'  => array(),
+                'success'          => false,
+                'error'            => $result->get_error_message(),
+                'code'             => $error_code,
+                'titles'           => array(),
+                'extraction_stats' => $extraction_stats,
             ), $status_code );
         }
 
         return new WP_REST_Response( array(
-            'success' => true,
-            'titles'  => $result,
-            'count'   => count( $result ),
-            'cached'  => false, // Could be enhanced to detect cached vs fresh.
+            'success'          => true,
+            'titles'           => $result,
+            'count'            => count( $result ),
+            'cached'           => false,
+            'extraction_stats' => $extraction_stats,
         ), 200 );
     }
 
@@ -257,7 +397,10 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
 
         // Enrich brain content with extracted text from storage.
         $args['brain_content']  = $this->enrich_brain_content_with_extracts( $args['brain_content'] );
-        $args['existing_assets'] = $this->enrich_brain_content_with_extracts( $args['existing_assets'] );
+        $args['existing_assets'] = $this->enrich_existing_assets( $args['existing_assets'] );
+
+        // Compute extraction stats for frontend visibility.
+        $extraction_stats = $this->compute_extraction_stats( $args['existing_assets'] );
 
         // Generate titles.
         $result = $this->generator->generate_solution_titles( $args );
@@ -279,18 +422,20 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             }
 
             return new WP_REST_Response( array(
-                'success' => false,
-                'error'   => $result->get_error_message(),
-                'code'    => $error_code,
-                'titles'  => array(),
+                'success'          => false,
+                'error'            => $result->get_error_message(),
+                'code'             => $error_code,
+                'titles'           => array(),
+                'extraction_stats' => $extraction_stats,
             ), $status_code );
         }
 
         return new WP_REST_Response( array(
-            'success'    => true,
-            'titles'     => $result,
-            'count'      => count( $result ),
-            'problem_id' => absint( $request->get_param( 'problem_id' ) ),
+            'success'          => true,
+            'titles'           => $result,
+            'count'            => count( $result ),
+            'problem_id'       => absint( $request->get_param( 'problem_id' ) ),
+            'extraction_stats' => $extraction_stats,
         ), 200 );
     }
 
@@ -324,6 +469,7 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             'solution_title'    => $request->get_param( 'solution_title' ),
             'format'            => $request->get_param( 'format' ) ?: 'article_long',
             'brain_content'     => $request->get_param( 'brain_content' ) ?: array(),
+            'existing_assets'   => $this->sanitize_existing_assets_param( $request->get_param( 'existing_assets' ) ),
             'industries'        => $request->get_param( 'industries' ) ?: array(),
             'existing_outline'  => $request->get_param( 'existing_outline' ) ?: '',
             'feedback'          => $request->get_param( 'feedback' ) ?: '',
@@ -332,9 +478,12 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             'focus_instruction' => $request->get_param( 'focus_instruction' ) ?: '',
         );
 
-        // Enrich brain content with extracted text from storage.
+        // Enrich brain content and existing assets with extracted text.
         if ( ! empty( $args['brain_content'] ) ) {
             $args['brain_content'] = $this->enrich_brain_content_with_extracts( $args['brain_content'] );
+        }
+        if ( ! empty( $args['existing_assets'] ) ) {
+            $args['existing_assets'] = $this->enrich_existing_assets( $args['existing_assets'] );
         }
 
         $result = $this->generator->generate_outline( $args );
@@ -365,6 +514,7 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             'format'            => $request->get_param( 'format' ) ?: 'article_long',
             'outline'           => $request->get_param( 'outline' ) ?: '',
             'brain_content'     => $request->get_param( 'brain_content' ) ?: array(),
+            'existing_assets'   => $this->sanitize_existing_assets_param( $request->get_param( 'existing_assets' ) ),
             'industries'        => $request->get_param( 'industries' ) ?: array(),
             'existing_content'  => $request->get_param( 'existing_content' ) ?: '',
             'feedback'          => $request->get_param( 'feedback' ) ?: '',
@@ -373,9 +523,12 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
             'focus_instruction' => $request->get_param( 'focus_instruction' ) ?: '',
         );
 
-        // Enrich brain content with extracted text from storage.
+        // Enrich brain content and existing assets with extracted text.
         if ( ! empty( $args['brain_content'] ) ) {
             $args['brain_content'] = $this->enrich_brain_content_with_extracts( $args['brain_content'] );
+        }
+        if ( ! empty( $args['existing_assets'] ) ) {
+            $args['existing_assets'] = $this->enrich_existing_assets( $args['existing_assets'] );
         }
 
         $result = $this->generator->generate_content( $args );
@@ -390,6 +543,198 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
         return new WP_REST_Response( array(
             'success' => true,
             'content' => $result['content'],
+        ), 200 );
+    }
+
+    // =========================================================================
+    // EXTRACTION STATUS
+    // =========================================================================
+
+    /**
+     * Compute extraction statistics for a set of existing assets.
+     *
+     * Returns a summary object suitable for including in API responses
+     * and for frontend status display.
+     *
+     * @since 2.1.0
+     * @param array $items Enriched existing assets array.
+     * @return array Extraction stats.
+     */
+    private function compute_extraction_stats( $items ) {
+        if ( empty( $items ) || ! is_array( $items ) ) {
+            return array(
+                'total'     => 0,
+                'extracted' => 0,
+                'pending'   => 0,
+                'failed'    => 0,
+                'chars'     => 0,
+                'items'     => array(),
+            );
+        }
+
+        $total     = 0;
+        $extracted = 0;
+        $pending   = 0;
+        $failed    = 0;
+        $chars     = 0;
+        $details   = array();
+
+        foreach ( $items as $item ) {
+            if ( ! is_array( $item ) ) {
+                continue;
+            }
+
+            $total++;
+            $name           = $item['name'] ?? $item['value'] ?? '(unknown)';
+            $extracted_text = isset( $item['extracted_text'] ) ? trim( $item['extracted_text'] ) : '';
+
+            if ( ! empty( $extracted_text ) ) {
+                $extracted++;
+                $item_chars = strlen( $extracted_text );
+                $chars += $item_chars;
+                $details[] = array(
+                    'name'   => $name,
+                    'status' => 'extracted',
+                    'chars'  => $item_chars,
+                );
+            } else {
+                // Check if we can determine the actual status.
+                $status = 'pending';
+                $file_id = absint( $item['fileId'] ?? 0 );
+                if ( $file_id > 0 ) {
+                    $meta_status = get_post_meta( $file_id, '_jc_extraction_status', true );
+                    if ( $meta_status === 'failed' ) {
+                        $status = 'failed';
+                        $failed++;
+                    } else {
+                        $pending++;
+                    }
+                } else {
+                    $pending++;
+                }
+
+                $details[] = array(
+                    'name'   => $name,
+                    'status' => $status,
+                    'chars'  => 0,
+                );
+            }
+        }
+
+        return array(
+            'total'     => $total,
+            'extracted' => $extracted,
+            'pending'   => $pending,
+            'failed'    => $failed,
+            'chars'     => $chars,
+            'items'     => $details,
+        );
+    }
+
+    /**
+     * Check extraction status for a list of asset file IDs.
+     *
+     * Called by the frontend to show extraction badges on each asset.
+     *
+     * @since 2.1.0
+     * @param WP_REST_Request $request Request with 'file_ids' param.
+     * @return WP_REST_Response Extraction status for each file ID.
+     */
+    public function check_extraction_status( $request ) {
+        $file_ids = $request->get_param( 'file_ids' );
+        if ( empty( $file_ids ) || ! is_array( $file_ids ) ) {
+            return new WP_REST_Response( array( 'items' => array() ), 200 );
+        }
+
+        $results = array();
+        foreach ( $file_ids as $id ) {
+            $id = absint( $id );
+            if ( $id <= 0 ) {
+                continue;
+            }
+
+            $status    = get_post_meta( $id, '_jc_extraction_status', true ) ?: 'none';
+            $extracted = get_post_meta( $id, '_jc_extracted_text', true );
+            $chars     = ! empty( $extracted ) ? strlen( $extracted ) : 0;
+
+            $results[] = array(
+                'fileId' => $id,
+                'status' => $status,
+                'chars'  => $chars,
+            );
+        }
+
+        return new WP_REST_Response( array( 'items' => $results ), 200 );
+    }
+
+    /**
+     * Trigger extraction for a single attachment file.
+     *
+     * Called immediately after upload so the user gets real-time feedback
+     * and the Next button can be gated on extraction completion.
+     *
+     * @since 2.1.0
+     * @param WP_REST_Request $request Request with 'file_id' param.
+     * @return WP_REST_Response Extraction result.
+     */
+    public function extract_asset( $request ) {
+        $file_id = absint( $request->get_param( 'file_id' ) );
+
+        // Verify this is a valid attachment.
+        $post = get_post( $file_id );
+        if ( ! $post || 'attachment' !== $post->post_type ) {
+            return new WP_REST_Response( array(
+                'success' => false,
+                'error'   => 'Invalid attachment ID.',
+                'status'  => 'failed',
+            ), 400 );
+        }
+
+        // Check if already extracted.
+        $existing = get_post_meta( $file_id, '_jc_extracted_text', true );
+        if ( ! empty( $existing ) ) {
+            return new WP_REST_Response( array(
+                'success' => true,
+                'status'  => 'completed',
+                'chars'   => strlen( $existing ),
+            ), 200 );
+        }
+
+        // Lazy-load manager.
+        if ( ! class_exists( 'Brain_Content_Manager' ) ) {
+            $path = plugin_dir_path( dirname( __FILE__ ) ) . 'models/class-brain-content-manager.php';
+            if ( file_exists( $path ) ) {
+                require_once $path;
+            }
+        }
+
+        if ( ! class_exists( 'Brain_Content_Manager' ) ) {
+            return new WP_REST_Response( array(
+                'success' => false,
+                'error'   => 'Brain Content Manager not available.',
+                'status'  => 'failed',
+            ), 500 );
+        }
+
+        $manager = new Brain_Content_Manager();
+        $result  = $manager->extract_from_attachment( $file_id );
+
+        if ( $result ) {
+            $extracted = get_post_meta( $file_id, '_jc_extracted_text', true );
+            $tone      = get_post_meta( $file_id, '_jc_tone_style_profile', true );
+
+            return new WP_REST_Response( array(
+                'success'      => true,
+                'status'       => 'completed',
+                'chars'        => strlen( $extracted ),
+                'has_tone'     => ! empty( $tone ),
+            ), 200 );
+        }
+
+        return new WP_REST_Response( array(
+            'success' => false,
+            'status'  => 'failed',
+            'error'   => 'Extraction failed. Check server logs for details.',
         ), 200 );
     }
 
@@ -487,6 +832,119 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
     }
 
     /**
+     * Enrich existing asset items with extracted text and tone profiles.
+     *
+     * Unlike brain content (which lives in jc_brain_content posts), existing
+     * assets are either WordPress attachment posts (files) or bare URLs with
+     * no server-side post. This method handles both cases:
+     *
+     * - File assets: Uses the attachment ID to get the real file path, then
+     *   runs extraction via Brain_Content_Manager::extract_from_attachment().
+     * - URL assets: Fetches and extracts content on-the-fly, caching the
+     *   result in a transient to avoid re-fetching on every request.
+     *
+     * @since 2.1.0
+     * @param array $items Existing assets array from the frontend.
+     * @return array Enriched items with extracted_text and tone_style_profile.
+     */
+    private function enrich_existing_assets( $items ) {
+        if ( empty( $items ) || ! is_array( $items ) ) {
+            return $items;
+        }
+
+        // Lazy-load the manager once.
+        if ( ! class_exists( 'Brain_Content_Manager' ) ) {
+            $path = plugin_dir_path( dirname( __FILE__ ) ) . 'models/class-brain-content-manager.php';
+            if ( file_exists( $path ) ) {
+                require_once $path;
+            }
+        }
+
+        $manager = class_exists( 'Brain_Content_Manager' ) ? new Brain_Content_Manager() : null;
+
+        foreach ( $items as &$item ) {
+            if ( ! is_array( $item ) ) {
+                continue;
+            }
+
+            // Skip if already enriched.
+            if ( ! empty( $item['extracted_text'] ) ) {
+                continue;
+            }
+
+            $type = $item['type'] ?? '';
+
+            // === FILE ASSETS (WordPress attachments) ===
+            if ( $type === 'file' && ! empty( $item['fileId'] ) ) {
+                $attachment_id = absint( $item['fileId'] );
+
+                // Check if we already extracted for this attachment.
+                $extracted = get_post_meta( $attachment_id, '_jc_extracted_text', true );
+
+                if ( empty( $extracted ) ) {
+                    // Run extraction — this does the full two-pass pipeline.
+                    if ( $manager ) {
+                        $manager->extract_from_attachment( $attachment_id );
+                        $extracted = get_post_meta( $attachment_id, '_jc_extracted_text', true );
+                    }
+                }
+
+                if ( ! empty( $extracted ) ) {
+                    $item['extracted_text'] = $extracted;
+                }
+
+                // Also pull tone profile.
+                $tone = get_post_meta( $attachment_id, '_jc_tone_style_profile', true );
+                if ( ! empty( $tone ) ) {
+                    $item['tone_style_profile'] = $tone;
+                }
+
+                continue;
+            }
+
+            // === URL ASSETS ===
+            if ( $type === 'url' && ! empty( $item['value'] ) ) {
+                $url = $item['value'];
+
+                // Check transient cache first (1 hour TTL).
+                $cache_key = 'jc_asset_url_' . md5( $url );
+                $cached    = get_transient( $cache_key );
+
+                if ( false !== $cached && is_array( $cached ) ) {
+                    $item['extracted_text'] = $cached['extracted_text'] ?? '';
+                    if ( ! empty( $cached['tone_style_profile'] ) ) {
+                        $item['tone_style_profile'] = $cached['tone_style_profile'];
+                    }
+                    continue;
+                }
+
+                // Fetch and extract on-the-fly.
+                if ( $manager ) {
+                    $raw_text = $manager->extract_url_text( $url );
+
+                    if ( ! is_wp_error( $raw_text ) && ! empty( $raw_text ) ) {
+                        // Clean and truncate for prompt use.
+                        $raw_text = preg_replace( '/\s+/', ' ', trim( $raw_text ) );
+                        $extracted = substr( $raw_text, 0, Brain_Content_Manager::MAX_EXTRACTED_LENGTH );
+
+                        $item['extracted_text'] = $extracted;
+
+                        // Cache for future requests.
+                        set_transient( $cache_key, array(
+                            'extracted_text' => $extracted,
+                        ), HOUR_IN_SECONDS );
+                    }
+                }
+
+                continue;
+            }
+        }
+        unset( $item );
+
+        return $items;
+    }
+
+    /**
      * Find a brain content post by its type and value.
      *
      * @since 2.1.0
@@ -571,6 +1029,13 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
                 'type'              => 'string',
                 'sanitize_callback' => 'sanitize_text_field',
                 'description'       => __( 'Service area name (used if ID not provided).', 'directreach' ),
+            ),
+            'primary_problem_statement' => array(
+                'required'          => false,
+                'type'              => 'string',
+                'sanitize_callback' => 'sanitize_text_field',
+                'default'           => '',
+                'description'       => __( 'Selected Primary Problem statement from Step 5.', 'directreach' ),
             ),
             'industries' => array(
                 'required'    => false,

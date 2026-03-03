@@ -1149,3 +1149,43 @@
         -webkit-overflow-scrolling: touch;
     }
 }
+
+/* Extraction status badges (Step 3 assets) */
+.jc-asset-extraction-status {
+    flex-shrink: 0;
+}
+
+.jc-extraction-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.jc-extraction-badge i {
+    font-size: 11px;
+}
+
+.jc-extraction-success {
+    background: #e6f4ea;
+    color: #1e7e34;
+}
+
+.jc-extraction-processing {
+    background: #e8f0fe;
+    color: #1a73e8;
+}
+
+.jc-extraction-pending {
+    background: #fef7e0;
+    color: #b06d00;
+}
+
+.jc-extraction-failed {
+    background: #fce8e6;
+    color: #c5221f;
+}

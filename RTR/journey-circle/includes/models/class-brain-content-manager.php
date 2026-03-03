@@ -278,6 +278,23 @@ class Brain_Content_Manager {
 
         $mime_type = mime_content_type( $file_path );
 
+        // WordPress and PHP often return application/octet-stream for DOCX files.
+        // Fall back to file extension detection in these cases.
+        if ( 'application/octet-stream' === $mime_type || empty( $mime_type ) ) {
+            $ext = strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) );
+            $ext_map = array(
+                'pdf'  => 'application/pdf',
+                'doc'  => 'application/msword',
+                'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'txt'  => 'text/plain',
+                'html' => 'text/html',
+                'htm'  => 'text/html',
+            );
+            if ( isset( $ext_map[ $ext ] ) ) {
+                $mime_type = $ext_map[ $ext ];
+            }
+        }
+
         switch ( $mime_type ) {
             case 'text/plain':
                 $content = file_get_contents( $file_path );
@@ -564,6 +581,108 @@ class Brain_Content_Manager {
     }
 
     /**
+     * Extract content from a WordPress media attachment (not a jc_brain_content post).
+     *
+     * Used by the existing assets enrichment pipeline. Reads the file from
+     * the attachment's real path, extracts text, runs the two-pass AI
+     * analysis, and stores results as post meta on the attachment itself.
+     *
+     * @since 2.1.0
+     * @param int $attachment_id WordPress attachment post ID.
+     * @return bool True if extraction succeeded, false otherwise.
+     */
+    /**
+     * Maximum characters of raw text to store for existing asset extractions.
+     * Higher than brain content because these are primary source documents.
+     */
+    const MAX_ASSET_EXTRACTED_LENGTH = 15000;
+
+    public function extract_from_attachment( $attachment_id ) {
+        $file_path = get_attached_file( $attachment_id );
+
+        if ( empty( $file_path ) || ! file_exists( $file_path ) ) {
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                error_log( "Journey Circle: extract_from_attachment — file not found for attachment #{$attachment_id}" );
+            }
+            return false;
+        }
+
+        // Check mime type — only support PDF and DOCX.
+        $mime = get_post_mime_type( $attachment_id );
+        $supported = array(
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        );
+
+        // WordPress often stores DOCX as application/octet-stream. Fall back to extension.
+        if ( ! in_array( $mime, $supported, true ) ) {
+            $ext = strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) );
+            $ext_supported = array( 'pdf', 'doc', 'docx' );
+            if ( ! in_array( $ext, $ext_supported, true ) ) {
+                if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                    error_log( "Journey Circle: extract_from_attachment — unsupported type {$mime} (ext: {$ext}) for attachment #{$attachment_id}" );
+                }
+                return false;
+            }
+        }
+
+        update_post_meta( $attachment_id, '_jc_extraction_status', 'processing' );
+
+        $raw_text = $this->extract_file_content( $file_path );
+
+        if ( is_wp_error( $raw_text ) || empty( $raw_text ) ) {
+            update_post_meta( $attachment_id, '_jc_extraction_status', 'failed' );
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                $msg = is_wp_error( $raw_text ) ? $raw_text->get_error_message() : 'Empty content';
+                error_log( "Journey Circle: extract_from_attachment failed for #{$attachment_id}: {$msg}" );
+            }
+            return false;
+        }
+
+        // Clean up whitespace.
+        $raw_text = preg_replace( '/\s+/', ' ', trim( $raw_text ) );
+
+        // === Store full raw text (no AI summarization) ===
+        // Existing assets are primary source documents (client Q&A, interviews).
+        // We want as much raw text as possible in the prompt — do NOT summarize.
+        $extracted = substr( $raw_text, 0, self::MAX_ASSET_EXTRACTED_LENGTH );
+        update_post_meta( $attachment_id, '_jc_extracted_text', $extracted );
+
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            $raw_len = strlen( $raw_text );
+            $stored_len = strlen( $extracted );
+            error_log( "Journey Circle: extract_from_attachment #{$attachment_id}: raw={$raw_len} chars, stored={$stored_len} chars" );
+        }
+
+        // === Tone & Style Profile (still use AI for this) ===
+        $tone_profile = $this->extract_tone_profile( $raw_text );
+        if ( ! is_wp_error( $tone_profile ) && ! empty( $tone_profile ) ) {
+            $tone_profile = substr( $tone_profile, 0, self::MAX_TONE_PROFILE_LENGTH );
+            update_post_meta( $attachment_id, '_jc_tone_style_profile', $tone_profile );
+        }
+
+        // Mark extraction complete.
+        update_post_meta( $attachment_id, '_jc_extraction_status', 'completed' );
+
+        return true;
+    }
+
+    /**
+     * Extract content from a URL without requiring a backing post.
+     *
+     * Fetches the URL, extracts text, and returns the raw text.
+     * The caller is responsible for caching/storing the result.
+     *
+     * @since 2.1.0
+     * @param string $url URL to fetch and extract.
+     * @return string|WP_Error Extracted text or error.
+     */
+    public function extract_url_text( $url ) {
+        return $this->fetch_url_content( $url );
+    }
+
+    /**
      * Process raw extracted text: summarize if needed, then store.
      *
      * Performs two-pass AI analysis:
@@ -797,14 +916,14 @@ PROMPT;
             'generationConfig' => array(
                 'temperature'     => 0.3,
                 'topP'            => 0.8,
-                'maxOutputTokens' => 1024,
+                'maxOutputTokens' => 2048,
             ),
         );
 
         $response = wp_remote_post( $url, array(
             'headers' => array( 'Content-Type' => 'application/json' ),
             'body'    => wp_json_encode( $body ),
-            'timeout' => 30,
+            'timeout' => 60,
         ) );
 
         if ( is_wp_error( $response ) ) {
@@ -816,8 +935,21 @@ PROMPT;
         }
 
         $data = json_decode( wp_remote_retrieve_body( $response ), true );
+
+        // Log finish reason for debugging truncated outputs.
+        $finish_reason = $data['candidates'][0]['finishReason'] ?? 'unknown';
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG && 'STOP' !== $finish_reason ) {
+            error_log( "Journey Circle: Gemini finish reason: {$finish_reason} (expected STOP)" );
+        }
+
         if ( isset( $data['candidates'][0]['content']['parts'][0]['text'] ) ) {
-            return trim( $data['candidates'][0]['content']['parts'][0]['text'] );
+            $text = trim( $data['candidates'][0]['content']['parts'][0]['text'] );
+
+            if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+                error_log( 'Journey Circle: Gemini output length: ' . strlen( $text ) . ' chars, finish: ' . $finish_reason );
+            }
+
+            return $text;
         }
 
         return new WP_Error( 'parse_error', 'Could not parse Gemini summary response.' );

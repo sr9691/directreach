@@ -64,14 +64,14 @@ class DR_AI_Content_Generator {
      *
      * @var int
      */
-    const MAX_PROBLEM_TITLES = 10;
+    const MAX_PROBLEM_TITLES = 15;
 
     /**
      * Minimum number of problem titles to request.
      *
      * @var int
      */
-    const MIN_PROBLEM_TITLES = 8;
+    const MIN_PROBLEM_TITLES = 15;
 
     /**
      * Number of solution titles per problem.
@@ -136,7 +136,31 @@ class DR_AI_Content_Generator {
      * }
      * @return array|WP_Error Array of title strings on success, WP_Error on failure.
      */
-    public function generate_problem_titles( $args ) {
+
+    // =========================================================================
+    // STEP 5: PRIMARY PROBLEM GENERATION
+    // =========================================================================
+
+    /**
+     * Generate Primary Problem statement candidates.
+     *
+     * Extracts structured buyer context from existing assets, then generates
+     * 8-10 solution-agnostic problem statements following the template:
+     * "[Buyer] struggle to [desired outcome] because [root cause],
+     *  resulting in [business impact] and increasing [risk/cost]."
+     *
+     * @since 2.2.0
+     * @param array $args {
+     *     @type int    $service_area_id
+     *     @type string $service_area_name
+     *     @type array  $industries
+     *     @type array  $brain_content
+     *     @type array  $existing_assets
+     *     @type bool   $force_refresh
+     * }
+     * @return array|WP_Error Result with 'statements', 'best_pick', 'extracted_fields'.
+     */
+    public function generate_primary_problems( $args ) {
         $defaults = array(
             'service_area_id'   => 0,
             'service_area_name' => '',
@@ -144,6 +168,199 @@ class DR_AI_Content_Generator {
             'brain_content'     => array(),
             'existing_assets'   => array(),
             'force_refresh'     => false,
+        );
+        $args = wp_parse_args( $args, $defaults );
+
+        // Resolve service area name.
+        if ( empty( $args['service_area_name'] ) && ! empty( $args['service_area_id'] ) ) {
+            $args['service_area_name'] = $this->get_service_area_name( $args['service_area_id'] );
+        }
+
+        error_log( '[JC AI] generate_primary_problems START — service_area=' . $args['service_area_name'] );
+
+        // Cache check.
+        $cache_key = $this->build_cache_key( 'primary_problems', $args );
+        if ( $args['force_refresh'] ) {
+            delete_transient( $cache_key );
+        } elseif ( false !== ( $cached = get_transient( $cache_key ) ) ) {
+            error_log( '[JC AI] generate_primary_problems CACHE HIT' );
+            return $cached;
+        }
+
+        // Build prompt.
+        $prompt = $this->build_primary_problems_prompt( $args );
+
+        error_log( '[JC AI] generate_primary_problems — prompt built, length=' . strlen( $prompt ) );
+
+        // Call Gemini with extended timeout — this prompt is large with structured output.
+        error_log( '[JC AI] generate_primary_problems — calling Gemini API...' );
+        $response = $this->call_gemini_api( $prompt, array( 'timeout' => 90 ) );
+        if ( is_wp_error( $response ) ) {
+            error_log( '[JC AI] generate_primary_problems API ERROR: ' . $response->get_error_message() );
+            return $response;
+        }
+
+        // Parse JSON response.
+        $result = $this->parse_json_response( $response );
+        if ( is_wp_error( $result ) ) {
+            error_log( '[JC AI] generate_primary_problems PARSE ERROR: ' . $result->get_error_message() );
+            return $result;
+        }
+
+        // Validate expected structure.
+        if ( ! isset( $result['statements'] ) || ! is_array( $result['statements'] ) ) {
+            return new WP_Error( 'invalid_response', 'Response missing "statements" array.' );
+        }
+
+        // Cache for 6 hours.
+        set_transient( $cache_key, $result, 6 * HOUR_IN_SECONDS );
+
+        $count = count( $result['statements'] );
+        error_log( "[JC AI] generate_primary_problems SUCCESS — {$count} statements generated" );
+
+        return $result;
+    }
+
+    /**
+     * Build the prompt for Primary Problem generation.
+     *
+     * @since 2.2.0
+     * @param array $args Generation arguments.
+     * @return string Full prompt text.
+     */
+    private function build_primary_problems_prompt( $args ) {
+        $assets_summary = $this->summarize_existing_assets( $args['existing_assets'] ?? array() );
+        $brain_summary  = $this->summarize_brain_content( $args['brain_content'] );
+        $industries     = $this->format_industries( $args['industries'] );
+        $service_area   = sanitize_text_field( $args['service_area_name'] );
+
+        $prompt = <<<PROMPT
+### ROLE
+You are a B2B Content Strategy Architect specializing in buyer-problem research. Your job is to identify and articulate the **single core buyer problem** that anchors an entire content marketing journey.
+
+### TASK
+You have two jobs:
+1. **Extract** structured buyer context from the source material
+2. **Generate** 8-10 Primary Problem statement candidates
+
+### SOURCE MATERIAL
+
+**Service Area:** {$service_area}
+**Target Industries:** {$industries}
+
+**Primary Client Knowledge (MOST IMPORTANT — this is the client describing problems and solutions in their own words):**
+{$assets_summary}
+
+**Supporting Research & Insights:**
+{$brain_summary}
+
+### JOB 1: EXTRACT STRUCTURED FIELDS
+
+From the source material above, identify and extract these fields. Use the client's own language wherever possible:
+
+- **buyer_roles**: Who experiences this problem? (job titles, roles — e.g., "B2B tech company CEOs", "VPs of Sales")
+- **industry_context**: What industry/market context makes this problem acute?
+- **desired_outcome**: What does the buyer want to achieve? (e.g., "predictable pipeline of qualified opportunities")
+- **core_pain**: What is actually failing or broken? (e.g., "no system to manufacture buyer interest into intent")
+- **root_cause**: Why is it happening? The deeper structural reason. (e.g., "marketing generates interest but nothing bridges the gap to sales-ready intent")
+- **business_impact**: What measurable damage results? (e.g., "sales team burnout, unpredictable revenue, repeated marketing restarts")
+- **stakes**: What happens in 12-24 months if ignored? (e.g., "stunted growth, talent exodus, failed growth initiatives")
+
+### JOB 2: GENERATE PRIMARY PROBLEM STATEMENTS
+
+Using the extracted fields, generate exactly 8 Primary Problem statements following this template:
+
+**Template:** "[Buyer role(s)] struggle to [desired outcome] because [root cause / barrier], resulting in [business impact] and increasing [risk / cost / constraint]."
+
+**Quality Rules:**
+1. **Solution-agnostic** — NO product names, no "platform," no "AI," no "we help," no vendor/solution language. If you removed the client's solution from the world, the statement must still be true.
+2. **Specific, not vague** — Ban "inefficiency," "challenges," "difficulties," "issues." Use concrete, measurable language.
+3. **Pain + consequence** — Every statement must describe BOTH what's broken AND what it costs.
+4. **Multi-angle potential** — The statement must be "attackable" from many angles: risk, revenue, time, reputation, compliance, talent, customer experience, competitive position.
+5. **Buyer language** — Use the words and phrases the buyer actually uses (from the source material), not consultant jargon.
+6. **Each statement must emphasize a different facet** — vary which root cause, which impact, or which stakeholder perspective is foregrounded.
+
+**Anti-patterns (DO NOT write statements like these):**
+- "Companies struggle with growth challenges" (too vague)
+- "Businesses need better marketing automation" (solution language)
+- "Sales teams face difficulties in pipeline management" (corporate-speak, no consequence)
+
+**Strong examples:**
+- "B2B tech company leaders struggle to build a predictable pipeline of qualified opportunities because their marketing generates interest without bridging the gap to sales-ready intent, resulting in sales teams burning out on unqualified prospects and revenue targets becoming a quarterly gamble."
+- "Mid-market professional services firms struggle to scale beyond partner-led origination because no systematic process exists to educate buyers through the evaluation journey, resulting in chronic talent underutilization and growth that plateaus at the founders' personal capacity."
+
+### JOB 3: RECOMMEND THE BEST PICK
+
+Select the single best statement and explain:
+- Why it's the strongest (clarity, specificity, breadth of angles)
+- What makes it stay solution-agnostic
+- What "guardrail" words/phrases should be avoided when generating content from this statement
+
+### RESPONSE FORMAT
+Return ONLY a valid JSON object — no markdown fences, no explanation outside the JSON:
+
+{
+  "extracted_fields": {
+    "buyer_roles": "...",
+    "industry_context": "...",
+    "desired_outcome": "...",
+    "core_pain": "...",
+    "root_cause": "...",
+    "business_impact": "...",
+    "stakes": "..."
+  },
+  "statements": [
+    {
+      "id": 1,
+      "statement": "Full primary problem statement here",
+      "emphasis": "Which facet this statement foregrounds (e.g., 'sales burnout', 'revenue unpredictability', 'marketing waste')"
+    }
+  ],
+  "best_pick": {
+    "id": 1,
+    "rationale": "Why this statement is the strongest...",
+    "guardrails": ["word or phrase to avoid", "another phrase to avoid"]
+  }
+}
+
+CRITICAL: Return exactly 8 objects in the "statements" array. Each must follow the template. Each must foreground a different facet.
+PROMPT;
+
+        return $prompt;
+    }
+
+    // =========================================================================
+    // STEP 6: PROBLEM TITLE GENERATION
+    // =========================================================================
+
+    /**
+     * Generate problem titles using the awareness/angle matrix.
+     *
+     * Requires the selected Primary Problem statement from Step 5 as
+     * the anchor input. Generates 15 titles across 4 awareness levels:
+     *   4 Unaware, 4 Misnamed, 4 Aware, 3 Urgency.
+     *
+     * @since 2.2.0
+     * @param array $args {
+     *     @type int    $service_area_id            Service area CPT ID.
+     *     @type string $service_area_name          Service area display name.
+     *     @type string $primary_problem_statement  Selected primary problem from Step 5.
+     *     @type array  $industries                 Target industries.
+     *     @type array  $brain_content              Brain content items.
+     *     @type array  $existing_assets            Existing assets.
+     *     @type bool   $force_refresh              Skip cache if true.
+     * }
+     * @return array|WP_Error Array of title objects on success, WP_Error on failure.
+     */
+    public function generate_problem_titles( $args ) {
+        $defaults = array(
+            'service_area_id'            => 0,
+            'service_area_name'          => '',
+            'primary_problem_statement'  => '',
+            'industries'                 => array(),
+            'brain_content'              => array(),
+            'existing_assets'            => array(),
+            'force_refresh'              => false,
         );
         $args = wp_parse_args( $args, $defaults );
 
@@ -360,15 +577,20 @@ class DR_AI_Content_Generator {
     /**
      * Build the prompt for problem title generation.
      *
+     * Uses the awareness/angle matrix approach anchored to the
+     * Primary Problem statement selected in Step 5.
+     *
+     * @since 2.2.0
      * @param array $args Generation arguments.
      * @return string The constructed prompt.
      */
     private function build_problem_titles_prompt( $args ) {
-        $brain_summary  = $this->summarize_brain_content( $args['brain_content'] );
-        $tone_profile   = $this->get_tone_style_profile( $args['brain_content'] );
-        $assets_summary = $this->summarize_existing_assets( $args['existing_assets'] ?? array() );
-        $industries     = $this->format_industries( $args['industries'] );
-        $service_area   = sanitize_text_field( $args['service_area_name'] );
+        $brain_summary           = $this->summarize_brain_content( $args['brain_content'] );
+        $tone_profile            = $this->get_tone_style_profile( $args['brain_content'], $args['existing_assets'] ?? array() );
+        $assets_summary          = $this->summarize_existing_assets( $args['existing_assets'] ?? array() );
+        $industries              = $this->format_industries( $args['industries'] );
+        $service_area            = sanitize_text_field( $args['service_area_name'] );
+        $primary_problem         = sanitize_text_field( $args['primary_problem_statement'] ?? '' );
 
         // Build tone/voice instruction block.
         $tone_block = '';
@@ -394,74 +616,90 @@ class DR_AI_Content_Generator {
 
     $prompt = <<<PROMPT
 ### ROLE
-You are a Senior Content Strategist specializing in B2B Demand Generation for Professional & Business Services. Your expertise is identifying "unspoken" business pains and framing them as compelling content hooks that make executives uncomfortable enough to take action.
+You are a B2B Content Strategy Architect who specializes in buyer-awareness segmentation. You create diagnostic, problem-centric content titles that meet prospects at their exact stage of awareness — from completely unaware of the problem through urgently needing to act.
 
 ### TASK
-Analyze the provided Source Material and generate exactly 10 unique "Problem-Centric" titles. These titles will serve as the foundation for a Content Marketing Journey (Top-of-Funnel).
+Generate exactly 15 content titles organized across an **Awareness / Angle Matrix**. Every title must be anchored to the Primary Problem statement below. Titles are for TOP-OF-FUNNEL problem content — NO solutions, NO products, NO vendor language.
 
-### CONTEXT & KNOWLEDGE BASE
+### PRIMARY PROBLEM STATEMENT (ANCHOR)
+"{$primary_problem}"
+
+This statement follows the structure: "[Buyer] struggle to [outcome] because [root cause], resulting in [impact] and increasing [risk]."
+Each title you generate must connect to a specific component of this statement (cause, symptom, or impact).
+
+### CONTEXT
 - **Primary Service Area:** {$service_area}
 - **Target Industries:** {$industries}
-{$tone_block}- **Core Insights (Brain Content):**
-{$brain_summary}
-- **Existing Content Assets:**
+{$tone_block}- **Primary Client Knowledge:**
 {$assets_summary}
+- **Supporting Research & Insights:**
+{$brain_summary}
 {$constraints_block}
 
-### TITLE CONSTRUCTION RULES (The "Framework")
-Every title must follow one of these four psychological "angles":
-1. **The Cost of Inaction:** The hidden financial or operational drain of the status quo.
-2. **The Opportunity Gap:** What the firm is losing to competitors who leverage {$service_area}.
-3. **The Executive Friction:** How this problem creates personal stress or risk for decision-makers.
-4. **The Scalability Wall:** Why current manual processes will break during the next growth phase.
+### AWARENESS / ANGLE MATRIX
 
-### TONE & PROVOCATION DEVICES
-Every title must pass the "Coffee Spiller" Test — would a Partner scrolling LinkedIn stop because this headline feels like an indictment of their current strategy? To achieve this, each title MUST use one of these provocation devices:
+Generate titles across these four awareness levels:
 
-1. **The Rhetorical Question:** Forces the reader to confront an uncomfortable truth.
-   → "Why are your best clients leaving before you even know they're unhappy?"
-2. **The Direct Accusation ("You" Statement):** Makes it personal and impossible to ignore.
-   → "Your pipeline is a fiction — and your board is about to find out"
-3. **The Shocking Frame:** Anchors the problem to a tangible, visceral cost or "final straw" moment.
-   → "That 30% proposal win rate is silently draining \$1.5M from your bottom line"
-4. **The Contrarian / Myth-Buster:** Challenges a commonly held belief or sacred cow.
-   → "More leads won't save you — your conversion problem starts after the first call"
+**LEVEL 1 — UNAWARE (4 titles)**
+The reader does not know they have this problem. Titles surface symptoms, warning signs, or "you might have this and not know it" framings.
+- Use diagnostic language: symptoms, early indicators, hidden patterns
+- Make the reader self-diagnose: "Could this be happening to you?"
+- Example patterns: "The warning sign hiding in your…", "What your [metric] is actually telling you", "Why [common symptom] is rarely what it seems"
 
-### REQUIREMENTS FOR HIGH-PUNCH TITLES
-1. **Title Format Mix:** At least 5 of the 10 titles MUST be phrased as questions. The remaining may be declarative but must still use a provocation device above.
-2. **Zero "Corporate Speak":** Ban generic phrasing like "inefficient processes," "struggling to," "challenges with," or "difficulty in." Use visceral language: "operational paralysis," "revenue hemorrhaging," "talent exodus," "pipeline fiction."
-3. **Outcome-Centric Fear:** Don't just mention the problem — name the "final straw" consequence: losing a Tier-1 client, a partner exodus, a failed merger, a missed acquisition, a board revolt.
-4. **Perspectives:** Frame titles as revelations or indictments — "The terrifying cost of...," "The realization that...," "What nobody tells you about..." — never as flat observations.
-5. **Industry-Specific Language:** Reference real Professional Services pain points: The Bench (underutilized staff), non-billable burn, equity dilution, pitch fatigue, RFP treadmill, realization rate collapse, client churn, utilization death spiral, partner-led growth stalls.
-6. **Voice:** Write as if a frustrated CEO is venting to a trusted advisor — raw, specific, unfiltered.
-7. **Length:** 10–20 words. Avoid "The Importance of..." or "How to..." (those are solution titles, not problem titles).
-8. **No Repeats:** Each title must attack a different internal silo (Finance, Ops, Sales, Talent, Technology, Compliance, Growth, Client Retention, etc.).
-9. **Distribute Angles:** Use each of the 4 framework angles at least twice across the 10 titles.
-10. **Distribute Devices:** Use each of the 4 provocation devices at least twice across the 10 titles.
+**LEVEL 2 — MISNAMED (4 titles)**
+The reader knows something is wrong but has the wrong diagnosis. Titles reframe the problem — what people think it is vs. what it actually is.
+- Challenge the conventional label or assumed cause
+- Reveal the real problem underneath the surface symptom
+- Example patterns: "You think it's [common diagnosis] — it's actually [real cause]", "The [popular fix] fallacy", "Why fixing [symptom] keeps making [real problem] worse"
 
-### WEAK vs. STRONG — Do NOT generate titles like the "Weak" column
-| Weak (vague, passive, corporate) | Strong (specific, visceral, provocative) |
-|---|---|
-| Difficulty scaling pipeline processes across teams | Why does every growth spurt break your pipeline — and who pays the price? |
-| Struggling to attract high-value clients | Your competitors are closing your dream clients while you're still "building relationships" |
-| Poor alignment between strategy and objectives | The strategy deck looks great — so why is revenue still flat? |
-| Lack of visibility into performance metrics | You can't manage what you can't see — and right now your pipeline is a black box |
-| High turnover in service delivery teams | The terrifying cost of losing three senior consultants in one quarter |
+**LEVEL 3 — AWARE (4 titles)**
+The reader knows the problem. Titles frame the stakes clearly — what's at risk, what it costs, how it compounds.
+- Clear problem framing with specific stakes and consequences
+- Make the cost of the status quo viscerally clear
+- Example patterns: "The true cost of [problem]", "How [problem] silently erodes [important thing]", "[Problem]: What nobody tells the [role]"
+
+**LEVEL 4 — URGENCY (3 titles)**
+The reader knows the problem and may be procrastinating. Titles create time pressure — why it's getting worse, why delay is expensive, what's changed.
+- Market timing, competitive pressure, compounding damage
+- Make inaction feel like a decision with consequences
+- Example patterns: "Why [problem] is getting worse in [year/context]", "The cost of waiting another quarter on [problem]", "What every [role] will wish they'd addressed sooner"
+
+### ANGLE TAXONOMY
+Each title must use one of these strategic angles. Distribute angles across all 15 titles — don't cluster the same angle:
+- **Risk** — regulatory, reputational, operational, security
+- **Revenue** — pipeline, conversion, retention, pricing power
+- **Time** — compounding delays, wasted cycles, speed-to-value
+- **Talent** — attrition, burnout, underutilization, hiring friction
+- **Compliance** — regulatory, audit, legal exposure
+- **Competitive** — market position, share erosion, differentiation loss
+- **Customer** — churn, satisfaction, experience degradation
+
+### QUALITY RULES
+1. **NO SOLUTION LANGUAGE** — Titles must never mention the client name, product type, product category, technology type, or solution approach. Ban: "platform," "AI," "software," "system," "tool," "automation," "outsource," "partner." If you removed every solution from the market, the title must still make sense.
+2. **Diagnostic over generic** — Use specific, observable language. Ban: "challenges," "issues," "difficulties," "inefficiencies," "problems with." Use instead: "symptom," "pattern," "signal," "blind spot," "misdiagnosis," "friction."
+3. **Meaningfully distinct** — No two titles may be synonyms or rephrases of each other. Each must attack a genuinely different angle or facet.
+4. **10-20 words** — Punchy, scannable. No filler, no "How to" (those are solution titles).
+5. **Buyer language** — Use the words and phrases actual buyers use, not consultant jargon.
+
+### SELF-CHECK (CRITICAL)
+After generating all 15 titles, review every title and ask: "Does this title mention or imply any product, tool, vendor, technology, or solution category?" If YES, revise it before including it.
 
 ### RESPONSE FORMAT
-Return ONLY a valid JSON object with this exact structure — no markdown, no code fences, no explanation:
+Return ONLY a valid JSON object — no markdown fences, no code blocks, no explanation:
 {
   "titles": [
     {
-      "title": "Problem title string here",
-      "angle": "Cost of Inaction | Opportunity Gap | Executive Friction | Scalability Wall",
-      "device": "Rhetorical Question | Direct Accusation | Shocking Frame | Contrarian",
-      "rationale": "Why this specific pain point keeps a target industry leader awake at night."
+      "title": "The title text here",
+      "awareness_level": "Unaware | Misnamed | Aware | Urgency",
+      "angle": "Risk | Revenue | Time | Talent | Compliance | Competitive | Customer",
+      "problem_connection": "cause | symptom | impact",
+      "rationale": "One sentence: which part of the Primary Problem this connects to and why the framing works for this awareness level."
     }
-  ]
+  ],
+  "solution_language_check": "PASS or list of titles that needed revision and what was changed"
 }
 
-CRITICAL: You MUST return exactly 10 objects in the "titles" array, no fewer. Each title must be unique, each rationale must be specific to that problem, and the "angle" and "device" fields must match the framework options listed above.
+CRITICAL: Return exactly 15 objects in the "titles" array: 4 Unaware, 4 Misnamed, 4 Aware, 3 Urgency. Each title must have all five fields populated. The "awareness_level", "angle", and "problem_connection" fields must use the exact values listed above.
 PROMPT;
 
         return $prompt;
@@ -475,7 +713,7 @@ PROMPT;
      */
     private function build_solution_titles_prompt( $args ) {
         $brain_summary  = $this->summarize_brain_content( $args['brain_content'] );
-        $tone_profile   = $this->get_tone_style_profile( $args['brain_content'] );
+        $tone_profile   = $this->get_tone_style_profile( $args['brain_content'], $args['existing_assets'] ?? array() );
         $assets_summary = $this->summarize_existing_assets( $args['existing_assets'] ?? array() );
         $problem_title  = sanitize_text_field( $args['problem_title'] );
         $service_area   = sanitize_text_field( $args['service_area_name'] );
@@ -514,10 +752,10 @@ PROBLEM BEING SOLVED:
 CONTEXT:
 - Service Area: {$service_area}
 - Target Industries: {$industries}
-{$tone_block}- Source Material (Brain Content):
-{$brain_summary}
-- Existing Content Assets:
+{$tone_block}- Primary Client Knowledge (MOST IMPORTANT — the client's own description of their problems and solutions):
 {$assets_summary}
+- Supporting Research & Insights:
+{$brain_summary}
 {$exclusion_block}
 
 REQUIREMENTS FOR SOLUTION TITLES:
@@ -753,6 +991,45 @@ PROMPT;
      *
      * @param string $response_text Raw response text from AI.
      * @param string $type          'problems' or 'solutions'.
+     * @return array|WP_Error Parsed data or error.
+     */
+    private function parse_json_response( $response_text ) {
+        $raw_len = strlen( $response_text );
+        error_log( "[JC AI] parse_json_response — raw_length={$raw_len}" );
+
+        // Strip markdown code fences if present.
+        $cleaned = $response_text;
+        if ( preg_match( '/```(?:json)?\s*([\s\S]*?)\s*```/', $cleaned, $m ) ) {
+            $cleaned = $m[1];
+        }
+        $cleaned = trim( $cleaned );
+
+        $data = json_decode( $cleaned, true );
+        if ( json_last_error() === JSON_ERROR_NONE && is_array( $data ) ) {
+            error_log( '[JC AI] parse_json_response OK — keys: ' . implode( ', ', array_keys( $data ) ) );
+            return $data;
+        }
+
+        // Try to extract JSON object from response text.
+        if ( preg_match( '/\{[\s\S]*\}/', $cleaned, $m ) ) {
+            $data = json_decode( $m[0], true );
+            if ( json_last_error() === JSON_ERROR_NONE && is_array( $data ) ) {
+                error_log( '[JC AI] parse_json_response OK (extracted) — keys: ' . implode( ', ', array_keys( $data ) ) );
+                return $data;
+            }
+        }
+
+        error_log( '[JC AI] parse_json_response FAILED — json_error: ' . json_last_error_msg() );
+        error_log( '[JC AI] parse_json_response raw (first 500): ' . substr( $response_text, 0, 500 ) );
+
+        return new WP_Error( 'parse_error', 'Could not parse JSON response from Gemini: ' . json_last_error_msg() );
+    }
+
+    /**
+     * Parse the titles response from Gemini.
+     *
+     * @param string $response_text Raw response text.
+     * @param string $type          'problems' or 'solutions'.
      * @return array|WP_Error Array of title strings or error.
      */
     private function parse_titles_response( $response_text, $type ) {
@@ -896,6 +1173,20 @@ PROMPT;
                     $d = sanitize_text_field( $title['device'] );
                     if ( ! $this->is_json_fragment( $d ) ) {
                         $item['device'] = $d;
+                    }
+                }
+
+                if ( ! empty( $title['awareness_level'] ) ) {
+                    $al = sanitize_text_field( $title['awareness_level'] );
+                    if ( ! $this->is_json_fragment( $al ) ) {
+                        $item['awareness_level'] = $al;
+                    }
+                }
+
+                if ( ! empty( $title['problem_connection'] ) ) {
+                    $pc = sanitize_text_field( $title['problem_connection'] );
+                    if ( ! $this->is_json_fragment( $pc ) ) {
+                        $item['problem_connection'] = $pc;
                     }
                 }
 
@@ -1077,19 +1368,32 @@ PROMPT;
      * @param array $brain_content Array of brain content items.
      * @return string Combined tone profile or empty string.
      */
-    private function get_tone_style_profile( $brain_content ) {
-        if ( empty( $brain_content ) || ! is_array( $brain_content ) ) {
-            return '';
+    private function get_tone_style_profile( $brain_content, $existing_assets = array() ) {
+        $profiles = array();
+
+        // Check brain content items.
+        if ( ! empty( $brain_content ) && is_array( $brain_content ) ) {
+            foreach ( $brain_content as $item ) {
+                if ( ! is_array( $item ) ) {
+                    continue;
+                }
+                $profile = isset( $item['tone_style_profile'] ) ? trim( $item['tone_style_profile'] ) : '';
+                if ( ! empty( $profile ) ) {
+                    $profiles[] = $profile;
+                }
+            }
         }
 
-        $profiles = array();
-        foreach ( $brain_content as $item ) {
-            if ( ! is_array( $item ) ) {
-                continue;
-            }
-            $profile = isset( $item['tone_style_profile'] ) ? trim( $item['tone_style_profile'] ) : '';
-            if ( ! empty( $profile ) ) {
-                $profiles[] = $profile;
+        // Check existing assets items.
+        if ( ! empty( $existing_assets ) && is_array( $existing_assets ) ) {
+            foreach ( $existing_assets as $item ) {
+                if ( ! is_array( $item ) ) {
+                    continue;
+                }
+                $profile = isset( $item['tone_style_profile'] ) ? trim( $item['tone_style_profile'] ) : '';
+                if ( ! empty( $profile ) ) {
+                    $profiles[] = $profile;
+                }
             }
         }
 
@@ -1121,12 +1425,15 @@ PROMPT;
      */
     private function summarize_existing_assets( $existing_assets ) {
         if ( empty( $existing_assets ) || ! is_array( $existing_assets ) ) {
-            return '(No existing content assets provided)';
+            return '(No client documents provided)';
         }
 
-        $parts      = array();
-        $url_count  = 0;
-        $file_count = 0;
+        $parts          = array();
+        $url_count      = 0;
+        $file_count     = 0;
+        $extracted_count = 0;
+        $pending_count   = 0;
+        $total_chars     = 0;
 
         foreach ( $existing_assets as $item ) {
             if ( ! is_array( $item ) ) {
@@ -1138,14 +1445,21 @@ PROMPT;
             $value          = isset( $item['value'] ) ? $item['value'] : '';
             $extracted_text = isset( $item['extracted_text'] ) ? trim( $item['extracted_text'] ) : '';
 
+            if ( ! empty( $extracted_text ) ) {
+                $extracted_count++;
+                $total_chars += strlen( $extracted_text );
+            } else {
+                $pending_count++;
+            }
+
             switch ( $type ) {
                 case 'url':
                     $url_count++;
                     $display = $name ? $name : esc_url( $value );
                     if ( ! empty( $extracted_text ) ) {
-                        $parts[] = '- Existing content: ' . $display . "\n  Summary: " . $extracted_text;
+                        $parts[] = "--- Client source: {$display} ---\n{$extracted_text}";
                     } else {
-                        $parts[] = '- Existing content URL: ' . $display . ( $name && $value ? ' (' . esc_url( $value ) . ')' : '' );
+                        $parts[] = '- Client URL (content pending extraction): ' . $display;
                     }
                     break;
 
@@ -1153,10 +1467,9 @@ PROMPT;
                     $file_count++;
                     $filename = $name ? $name : ( isset( $item['filename'] ) ? sanitize_file_name( $item['filename'] ) : $value );
                     if ( ! empty( $extracted_text ) ) {
-                        $parts[] = '- Existing file: ' . $filename . "\n  Summary: " . $extracted_text;
+                        $parts[] = "--- Client document: {$filename} ---\n{$extracted_text}";
                     } else {
-                        $mime    = isset( $item['mimeType'] ) ? sanitize_text_field( $item['mimeType'] ) : '';
-                        $parts[] = '- Existing file: ' . $filename . ( $mime ? ' (' . $mime . ')' : '' );
+                        $parts[] = '- Client document (content pending extraction): ' . $filename;
                     }
                     break;
 
@@ -1166,29 +1479,28 @@ PROMPT;
                         if ( strlen( $text ) > 1000 ) {
                             $text = substr( $text, 0, 1000 ) . '... (truncated)';
                         }
-                        $parts[] = '- Existing content: ' . $text;
+                        $parts[] = "--- Client content ---\n{$text}";
                     }
                     break;
             }
         }
 
+        // Log extraction stats for debugging.
+        $total = $url_count + $file_count;
+        $chars_fmt = number_format( $total_chars );
+        error_log( "[JC AI] Assets: {$total} total, {$extracted_count} with extracted text ({$chars_fmt} chars), {$pending_count} pending" );
+
+        if ( $pending_count > 0 ) {
+            error_log( "[JC AI] WARNING: {$pending_count} asset(s) have no extracted text — titles will be generated without this content" );
+        }
+
         if ( empty( $parts ) ) {
-            return '(No usable existing content assets)';
+            return '(No usable client documents)';
         }
 
-        $summary = implode( "\n", $parts );
+        $header = sprintf( 'Client-provided source documents (%d):', $total );
 
-        $counts = array();
-        if ( $url_count > 0 ) {
-            $counts[] = sprintf( '%d existing URL%s', $url_count, $url_count > 1 ? 's' : '' );
-        }
-        if ( $file_count > 0 ) {
-            $counts[] = sprintf( '%d existing file%s', $file_count, $file_count > 1 ? 's' : '' );
-        }
-
-        $header = 'Existing content assets: ' . ( ! empty( $counts ) ? implode( ', ', $counts ) : 'see below' );
-
-        return $header . "\n" . $summary;
+        return $header . "\n" . implode( "\n\n", $parts );
     }   
 
     /**
@@ -1367,7 +1679,8 @@ PROMPT;
         $solution_title = sanitize_text_field( $args['solution_title'] ?? '' );
         $format         = sanitize_text_field( $args['format'] ?? 'article_long' );
         $brain_summary  = $this->summarize_brain_content( $args['brain_content'] ?? array() );
-        $tone_profile   = $this->get_tone_style_profile( $args['brain_content'] ?? array() );
+        $tone_profile   = $this->get_tone_style_profile( $args['brain_content'] ?? array(), $args['existing_assets'] ?? array() );
+        $assets_summary = $this->summarize_existing_assets( $args['existing_assets'] ?? array() );
         $industries_str = $this->format_industries( $args['industries'] ?? array() );
         $existing       = $args['existing_outline'] ?? '';
         $feedback       = sanitize_text_field( $args['feedback'] ?? '' );
@@ -1437,8 +1750,11 @@ PROMPT;
             if ( ! empty( $tone_instr ) ) {
                 $prompt .= $tone_instr;
             }
+            if ( ! empty( $assets_summary ) ) {
+                $prompt .= "\nPrimary Client Knowledge (use this as the most authoritative source):\n{$assets_summary}\n";
+            }
             if ( ! empty( $brain_summary ) ) {
-                $prompt .= "\nContext from client resources:\n{$brain_summary}\n";
+                $prompt .= "\nSupporting research & insights:\n{$brain_summary}\n";
             }
             $prompt .= "\nCreate a comprehensive, detailed outline. Each section should have specific, descriptive key points — not generic placeholders.\n";
             $prompt .= "Include at least 4-6 sections with 2-4 key points each.\n\n";
@@ -1531,7 +1847,8 @@ PROMPT;
         $format         = sanitize_text_field( $args['format'] ?? 'article_long' );
         $outline        = $args['outline'] ?? '';
         $brain_summary  = $this->summarize_brain_content( $args['brain_content'] ?? array() );
-        $tone_profile   = $this->get_tone_style_profile( $args['brain_content'] ?? array() );
+        $tone_profile   = $this->get_tone_style_profile( $args['brain_content'] ?? array(), $args['existing_assets'] ?? array() );
+        $assets_summary = $this->summarize_existing_assets( $args['existing_assets'] ?? array() );
         $industries_str = $this->format_industries( $args['industries'] ?? array() );
         $existing       = $args['existing_content'] ?? '';
         $feedback       = sanitize_text_field( $args['feedback'] ?? '' );
@@ -1548,25 +1865,25 @@ PROMPT;
         // PRESENTATION — slide deck JSON array
         // =====================================================================
         elseif ( $format === 'presentation' ) {
-            $prompt = $this->build_presentation_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile );
+            $prompt = $this->build_presentation_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile, $assets_summary );
         }
         // =====================================================================
         // LINKEDIN POST — structured post JSON
         // =====================================================================
         elseif ( $format === 'linkedin_post' ) {
-            $prompt = $this->build_linkedin_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile );
+            $prompt = $this->build_linkedin_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile, $assets_summary );
         }
         // =====================================================================
         // INFOGRAPHIC — structured sections with visual elements
         // =====================================================================
         elseif ( $format === 'infographic' ) {
-            $prompt = $this->build_infographic_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile );
+            $prompt = $this->build_infographic_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile, $assets_summary );
         }
         // =====================================================================
         // ARTICLE / BLOG POST — structured sections JSON
         // =====================================================================
         else {
-            $prompt = $this->build_article_prompt( $format, $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile );
+            $prompt = $this->build_article_prompt( $format, $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile, $assets_summary );
         }
 
         // All formats now use JSON response mode.
@@ -1612,7 +1929,7 @@ PROMPT;
     /**
      * Build article/blog post prompt — returns structured JSON.
      */
-    private function build_article_prompt( $format, $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile = '' ) {
+    private function build_article_prompt( $format, $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile = '', $assets_summary = '' ) {
         $word_counts = array(
             'article_long'  => '1500-2500',
             'article_short' => '500-800',
@@ -1629,8 +1946,11 @@ PROMPT;
         if ( ! empty( $tone_profile ) ) {
             $prompt .= "\nClient Voice & Style (CRITICAL — match this tone throughout):\n{$tone_profile}\n";
         }
+        if ( ! empty( $assets_summary ) ) {
+            $prompt .= "\nPrimary Client Knowledge (MOST IMPORTANT — use as authoritative source):\n{$assets_summary}\n";
+        }
         if ( ! empty( $brain_summary ) ) {
-            $prompt .= "\nContext from client resources:\n{$brain_summary}\n";
+            $prompt .= "\nSupporting research & insights:\n{$brain_summary}\n";
         }
         if ( ! empty( $focus_instr ) ) {
             $prompt .= "\nContent angle: {$focus_instr}\n";
@@ -1677,7 +1997,7 @@ PROMPT;
     /**
      * Build LinkedIn post prompt — returns structured JSON.
      */
-    private function build_linkedin_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile = '' ) {
+    private function build_linkedin_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile = '', $assets_summary = '' ) {
         $prompt  = "Write a professional LinkedIn post (200-300 words) and return it as structured JSON.\n\n";
         $prompt .= "Topic/Problem: {$problem_title}\nSolution: {$solution_title}\n";
         if ( ! empty( $industries_str ) ) {
@@ -1686,8 +2006,11 @@ PROMPT;
         if ( ! empty( $tone_profile ) ) {
             $prompt .= "\nClient Voice & Style (CRITICAL — match this tone throughout):\n{$tone_profile}\n";
         }
+        if ( ! empty( $assets_summary ) ) {
+            $prompt .= "\nPrimary Client Knowledge (use as authoritative source):\n{$assets_summary}\n";
+        }
         if ( ! empty( $brain_summary ) ) {
-            $prompt .= "\nContext from client resources:\n{$brain_summary}\n";
+            $prompt .= "\nSupporting research & insights:\n{$brain_summary}\n";
         }
         if ( ! empty( $focus_instr ) ) {
             $prompt .= "\nContent angle: {$focus_instr}\n";
@@ -1719,7 +2042,7 @@ PROMPT;
     /**
      * Build infographic prompt — returns structured sections with visual elements.
      */
-    private function build_infographic_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile = '' ) {
+    private function build_infographic_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile = '', $assets_summary = '' ) {
         $prompt  = "Create content for a professional infographic and return it as structured JSON.\n\n";
         $prompt .= "Topic/Problem: {$problem_title}\nSolution: {$solution_title}\n";
         if ( ! empty( $industries_str ) ) {
@@ -1728,8 +2051,11 @@ PROMPT;
         if ( ! empty( $tone_profile ) ) {
             $prompt .= "\nClient Voice & Style (match this tone):\n{$tone_profile}\n";
         }
+        if ( ! empty( $assets_summary ) ) {
+            $prompt .= "\nPrimary Client Knowledge (use as authoritative source):\n{$assets_summary}\n";
+        }
         if ( ! empty( $brain_summary ) ) {
-            $prompt .= "\nContext from client resources:\n{$brain_summary}\n";
+            $prompt .= "\nSupporting research & insights:\n{$brain_summary}\n";
         }
         if ( ! empty( $focus_instr ) ) {
             $prompt .= "\nContent angle: {$focus_instr}\n";
@@ -1776,7 +2102,7 @@ PROMPT;
      * Build presentation prompt — returns slide deck JSON array.
      * (Extracted from previous inline code, unchanged logic.)
      */
-    private function build_presentation_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile = '' ) {
+    private function build_presentation_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $focus_instr, $outline, $tone_profile = '', $assets_summary = '' ) {
         $prompt  = "Create a professional slide deck as a JSON array.\n\n";
         $prompt .= "Topic/Problem: {$problem_title}\n";
         $prompt .= "Solution: {$solution_title}\n";
@@ -1786,8 +2112,11 @@ PROMPT;
         if ( ! empty( $tone_profile ) ) {
             $prompt .= "\nClient Voice & Style (match this tone):\n{$tone_profile}\n";
         }
+        if ( ! empty( $assets_summary ) ) {
+            $prompt .= "\nPrimary Client Knowledge (use as authoritative source):\n{$assets_summary}\n";
+        }
         if ( ! empty( $brain_summary ) ) {
-            $prompt .= "\nContext from client resources:\n{$brain_summary}\n";
+            $prompt .= "\nSupporting research & insights:\n{$brain_summary}\n";
         }
         if ( ! empty( $focus_instr ) ) {
             $prompt .= "\nContent angle: {$focus_instr}\n";
