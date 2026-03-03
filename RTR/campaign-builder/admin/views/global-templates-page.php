@@ -12,64 +12,14 @@ if (!defined('ABSPATH')) {
 ?>
 
 <!-- Header -->
-<header class="admin-header">
-    <div class="header-content">
-        <div class="header-left">
-            <img src="<?php echo esc_url(plugin_dir_url(dirname(dirname(__FILE__))) . 'assets/MEMO_Seal.png'); ?>" 
-                 alt="DirectReach" 
-                 class="header-logo">
-            <span class="admin-badge">Global Templates</span>
-        </div>
-        
-        <div class="header-right">
-            <!-- Back to Campaign Builder -->
-            <a href="<?php echo esc_url(admin_url('admin.php?page=dr-campaign-builder')); ?>" 
-               class="btn btn-secondary">
-                <i class="fas fa-arrow-left"></i> Back to Campaign Builder
-            </a>
-            
-            <!-- Settings Dropdown -->
-            <div class="settings-dropdown" id="settings-dropdown-global">
-                <button class="settings-toggle" id="settings-toggle-global">
-                    <i class="fas fa-cog"></i>
-                    <span>Settings</span>
-                    <i class="fas fa-chevron-down"></i>
-                </button>
-                <div class="settings-menu">
-                    <a href="<?php echo admin_url('admin.php?page=dr-room-thresholds'); ?>" class="settings-item">
-                        <i class="fas fa-sliders-h"></i>
-                        <span>Room Thresholds</span>
-                    </a>
-                    <a href="<?php echo admin_url('admin.php?page=dr-scoring-rules'); ?>" class="settings-item">
-                        <i class="fas fa-calculator"></i>
-                        <span>Scoring Rules</span>
-                    </a>
-                    <a href="<?php echo admin_url('admin.php?page=dr-global-templates'); ?>" class="settings-item active">
-                        <i class="fas fa-robot"></i>
-                        <span>Global Email Templates</span>
-                    </a>
-                </div>
-            </div>
-            
-            <!-- User Info -->
-            <div class="admin-user-info">
-                <div class="user-avatar">
-                    <?php echo esc_html(strtoupper(substr(wp_get_current_user()->display_name, 0, 2))); ?>
-                </div>
-                <div class="user-details">
-                    <div class="user-name"><?php echo esc_html(wp_get_current_user()->display_name); ?></div>
-                    <div class="user-role">Administrator</div>
-                </div>
-            </div>
-            
-            <!-- Logout -->
-            <a href="<?php echo esc_url(wp_logout_url()); ?>" class="logout-btn">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </a>
-        </div>
-    </div>
-</header>
+<?php 
+$args = [
+    'page_badge' => 'Global Templates',
+    'active_page' => 'dr-global-templates',
+    'show_back_btn' => true
+];
+include __DIR__ . '/partials/admin-header.php';
+?>
 
 <!-- Main Content -->
 <main class="workflow-main">
@@ -168,25 +118,3 @@ if (!defined('ABSPATH')) {
 
 <!-- Notification Container -->
 <div class="notification-container"></div>
-
-<!-- Settings dropdown toggle script -->
-<script>
-(function() {
-    'use strict';
-    const dropdown = document.getElementById('settings-dropdown-global');
-    const toggleBtn = document.getElementById('settings-toggle-global');
-    
-    if (toggleBtn && dropdown) {
-        toggleBtn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            dropdown.classList.toggle('active');
-        });
-        
-        document.addEventListener('click', function(e) {
-            if (!dropdown.contains(e.target)) {
-                dropdown.classList.remove('active');
-            }
-        });
-    }
-})();
-</script>

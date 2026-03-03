@@ -97,12 +97,18 @@ class Template_Resolver {
      * @return array Array of CPD_Prompt_Template objects
      */
     private function load_campaign_templates( $campaign_id, $room_type ) {
+        // Query with JSON validation
         $query = $this->wpdb->prepare(
-            "SELECT * FROM {$this->table_name}
-            WHERE campaign_id = %d
-            AND room_type = %s
-            AND is_global = 0
-            ORDER BY template_order ASC, id ASC",
+            "SELECT t.* 
+            FROM {$this->table_name} t
+            WHERE t.campaign_id = %d
+            AND t.room_type = %s
+            AND t.is_global = 0
+            AND t.prompt_template IS NOT NULL
+            AND t.prompt_template != ''
+            AND t.prompt_template != '[]'
+            AND t.prompt_template != '{}'
+            ORDER BY t.template_order ASC, t.id ASC",
             $campaign_id,
             $room_type
         );
@@ -113,8 +119,36 @@ class Template_Resolver {
             error_log( '[DirectReach] Database error loading campaign templates: ' . $this->wpdb->last_error );
             return array();
         }
+        
+        // Pre-filter results for valid JSON
+        $valid_results = array();
+        foreach ( $results as $row ) {
+            $prompt_data = json_decode( $row['prompt_template'], true );
+            
+            if ( json_last_error() !== JSON_ERROR_NONE ) {
+                error_log( sprintf(
+                    '[DirectReach] Template ID %d has invalid JSON: %s',
+                    $row['id'],
+                    json_last_error_msg()
+                ) );
+                continue;
+            }
+            
+            // Check for minimum components (at least 5 of 7)
+            $component_count = is_array( $prompt_data ) ? count( $prompt_data ) : 0;
+            if ( $component_count < 5 ) {
+                error_log( sprintf(
+                    '[DirectReach] Template ID %d has only %d components (minimum 5 required)',
+                    $row['id'],
+                    $component_count
+                ) );
+                continue;
+            }
+            
+            $valid_results[] = $row;
+        }
 
-        return $this->convert_to_template_objects( $results );
+        return $this->convert_to_template_objects( $valid_results );
     }
 
     /**
@@ -124,12 +158,18 @@ class Template_Resolver {
      * @return array Array of CPD_Prompt_Template objects
      */
     private function load_global_templates( $room_type ) {
+        // Query with JSON validation
         $query = $this->wpdb->prepare(
-            "SELECT * FROM {$this->table_name}
-            WHERE campaign_id = 0
-            AND room_type = %s
-            AND is_global = 1
-            ORDER BY template_order ASC, id ASC",
+            "SELECT t.*
+            FROM {$this->table_name} t
+            WHERE t.campaign_id = 0
+            AND t.room_type = %s
+            AND t.is_global = 1
+            AND t.prompt_template IS NOT NULL
+            AND t.prompt_template != ''
+            AND t.prompt_template != '[]'
+            AND t.prompt_template != '{}'
+            ORDER BY t.template_order ASC, t.id ASC",
             $room_type
         );
 
@@ -139,8 +179,36 @@ class Template_Resolver {
             error_log( '[DirectReach] Database error loading global templates: ' . $this->wpdb->last_error );
             return array();
         }
+        
+        // Pre-filter results for valid JSON
+        $valid_results = array();
+        foreach ( $results as $row ) {
+            $prompt_data = json_decode( $row['prompt_template'], true );
+            
+            if ( json_last_error() !== JSON_ERROR_NONE ) {
+                error_log( sprintf(
+                    '[DirectReach] Global template ID %d has invalid JSON: %s',
+                    $row['id'],
+                    json_last_error_msg()
+                ) );
+                continue;
+            }
+            
+            // Check for minimum components (at least 5 of 7)
+            $component_count = is_array( $prompt_data ) ? count( $prompt_data ) : 0;
+            if ( $component_count < 5 ) {
+                error_log( sprintf(
+                    '[DirectReach] Global template ID %d has only %d components (minimum 5 required)',
+                    $row['id'],
+                    $component_count
+                ) );
+                continue;
+            }
+            
+            $valid_results[] = $row;
+        }
 
-        return $this->convert_to_template_objects( $results );
+        return $this->convert_to_template_objects( $valid_results );
     }
 
     /**

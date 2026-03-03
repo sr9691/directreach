@@ -8,8 +8,8 @@
  * @since 2.1.0
  */
 
-import EventEmitter from '../../../campaign-builder/admin/js/utils/event-emitter.js';
-import APIClient from '../../../campaign-builder/admin/js/utils/api-client.js';
+import EventEmitter from '../../../../campaign-builder/admin/js/utils/event-emitter.js';
+import APIClient from '../../../../campaign-builder/admin/js/utils/api-client.js';
 
 export default class ClientSettingsManager extends EventEmitter {
     constructor(config) {
