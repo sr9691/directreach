@@ -94,7 +94,7 @@ export default class ProspectManager {
                 const room = emailBtn.dataset.room;
                 const emailNumber = parseInt(emailBtn.dataset.emailNumber);
                 const emailState = emailBtn.dataset.emailState;
-                this.handleEmailClick(visitorId, room, emailNumber, emailState);
+                this.handleEmailClick(visitorId, prospectId, room, emailNumber, emailState);
             }
 
             // Info button
@@ -583,6 +583,7 @@ export default class ProspectManager {
             
             const emailBtn = document.createElement('button');
             emailBtn.className = 'rtr-email-btn';
+            emailBtn.dataset.prospectId = prospect.id;
             emailBtn.dataset.visitorId = prospect.visitor_id || prospect.id;
             emailBtn.dataset.room = room;
             emailBtn.dataset.emailNumber = i;
@@ -954,7 +955,7 @@ export default class ProspectManager {
      * @param {Number} emailNumber - Email sequence number
      * @param {String} emailState - Current email state
      */
-    handleEmailClick(visitorId, room, emailNumber, emailState) {
+    handleEmailClick(visitorId, prospectId, room, emailNumber, emailState) {
         // Debounce rapid clicks (500ms)
         const debounceKey = `${visitorId}-${emailNumber}`;
         const now = Date.now();
@@ -978,7 +979,7 @@ export default class ProspectManager {
                 break;
                 
             case 'ready':
-                this.viewReadyEmail(visitorId, room, emailNumber);
+                this.viewReadyEmail(visitorId, prospectId, room, emailNumber);
                 break;
                 
             case 'sent':
@@ -1090,7 +1091,7 @@ export default class ProspectManager {
      * @param {String} room - Room name
      * @param {Number} emailNumber - Email sequence number
      */
-    viewReadyEmail(visitorId, room, emailNumber) {
+    viewReadyEmail(visitorId, prospectId, room, emailNumber) {
         // Get prospect data to pass name and room
         const prospectCard = document.querySelector(`[data-visitor-id="${visitorId}"]`);
         let prospectName = 'Prospect';
@@ -1111,7 +1112,7 @@ export default class ProspectManager {
         
         document.dispatchEvent(new CustomEvent('rtr:view-ready-email', {
             detail: {
-                prospectId: visitorId,
+                prospectId: prospectId,  // rtr_prospects.id — used for tracking lookup
                 emailNumber: emailNumber,
                 prospectName: prospectName,
                 room: room
@@ -1333,7 +1334,7 @@ export default class ProspectManager {
             // Open the email modal to show the generated email
             document.dispatchEvent(new CustomEvent('rtr:view-ready-email', {
                 detail: {
-                    prospectId: visitorId,
+                    prospectId: prospectId,  // rtr_prospects.id — used for tracking lookup
                     emailNumber: emailNumber,
                     prospectName: prospectName,
                     room: room

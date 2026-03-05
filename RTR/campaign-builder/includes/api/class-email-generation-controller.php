@@ -1171,13 +1171,13 @@ class Email_Generation_Controller extends WP_REST_Controller {
             );
         }
 
-        $endpoint = $journeyos_url . '/api/generate';
+        $endpoint = $journeyos_url . '/webhook/generate-email';
 
         $body = wp_json_encode( array(
-            'prospect_id'      => $prospect_id,
-            'campaign_id'      => $campaign_id,
-            'prospect_data'    => null,
-            'force_regenerate' => false,
+            'prospect_id'   => $prospect_id,
+            'campaign_id'   => $campaign_id,
+            'prospect_data' => null,
+            'callback_url'  => null,
         ) );
 
         $response = wp_remote_post( $endpoint, array(
@@ -1202,23 +1202,42 @@ class Email_Generation_Controller extends WP_REST_Controller {
         $response_body = wp_remote_retrieve_body( $response );
         $data          = json_decode( $response_body, true );
 
-        if ( $status_code >= 400 || ( isset( $data['status'] ) && $data['status'] === 'error' ) ) {
-            $error_msg = $data['error'] ?? $data['message'] ?? "JourneyOS returned HTTP {$status_code}";
+        // JourneyOS uses { success: bool, error: string } — not { status: "error" }
+        if ( $status_code >= 400 ) {
+            $error_msg = $data['error'] ?? $data['detail'] ?? "JourneyOS returned HTTP {$status_code}";
             error_log( "[JourneyOS] Error for prospect {$prospect_id}: {$error_msg}" );
             return new WP_Error(
                 'journeyos_generation_failed',
                 $error_msg,
-                array( 'status' => $status_code >= 400 ? $status_code : 500 )
+                array( 'status' => $status_code )
             );
         }
 
-        if ( empty( $data ) || ( isset( $data['status'] ) && $data['status'] !== 'success' ) ) {
+        if ( empty( $data ) || ! isset( $data['success'] ) ) {
             return new WP_Error(
                 'journeyos_invalid_response',
-                $data['error'] ?? 'Invalid response from JourneyOS',
+                'Invalid or empty response from JourneyOS',
                 array( 'status' => 500 )
             );
         }
+
+        if ( ! $data['success'] ) {
+            $error_msg = $data['error'] ?? 'JourneyOS reported generation failure';
+            error_log( "[JourneyOS] Generation failed for prospect {$prospect_id}: {$error_msg}" );
+            return new WP_Error(
+                'journeyos_generation_failed',
+                $error_msg,
+                array( 'status' => 500 )
+            );
+        }
+
+        // Normalise field names to what the caller expects:
+        //   tracking_id        ← writeback_tracking_id
+        //   email              ← generated_email
+        //   generation_time_ms ← processing_time_ms
+        $data['tracking_id']        = $data['writeback_tracking_id'] ?? null;
+        $data['email']              = $data['generated_email'] ?? null;
+        $data['generation_time_ms'] = $data['processing_time_ms'] ?? null;
 
         return $data;
     }
@@ -2329,14 +2348,15 @@ class Email_Generation_Controller extends WP_REST_Controller {
         $email_number = (int) $request->get_param( 'email_number' );
         $table = $wpdb->prefix . 'rtr_email_tracking';
         
-        // Get most recent tracking record for this prospect/email combination
+        // Get most recent tracking record for this prospect/email combination.
+        // $prospect_id here is rtr_prospects.id (passed by the JS after JourneyOS
+        // write-back sets email_states to 'ready' on the prospect row).
         $tracking = $wpdb->get_row(
             $wpdb->prepare(
                 "SELECT et.* FROM {$table} et
-                INNER JOIN {$wpdb->prefix}rtr_prospects p ON et.prospect_id = p.id
-                WHERE p.visitor_id = %d 
-                AND et.email_number = %d 
-                ORDER BY et.id DESC 
+                WHERE et.prospect_id = %d
+                AND et.email_number = %d
+                ORDER BY et.id DESC
                 LIMIT 1",
                 $prospect_id,
                 $email_number
