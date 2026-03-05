@@ -192,6 +192,17 @@ class AISettingsManager {
         if (this.rateLimitInput && data.rate_limit) {
             this.rateLimitInput.value = data.rate_limit;
         }
+
+        // JourneyOS
+        const journeyosUrlInput = document.getElementById('journeyos-api-url');
+        if (journeyosUrlInput && data.journeyos_api_url) {
+            journeyosUrlInput.value = data.journeyos_api_url;
+        }
+
+        const journeyosKeyInput = document.getElementById('journeyos-api-key');
+        if (journeyosKeyInput && data.journeyos_api_key_set) {
+            journeyosKeyInput.placeholder = 'API Key configured (hidden for security)';
+        }
     }
     
     /**
@@ -303,6 +314,18 @@ class AISettingsManager {
         if (this.apiKeyInput && this.apiKeyInput.value && 
             this.apiKeyInput.value !== this.apiKeyInput.placeholder) {
             data.api_key = this.apiKeyInput.value;
+        }
+
+        // JourneyOS
+        const journeyosUrlInput = document.getElementById('journeyos-api-url');
+        if (journeyosUrlInput) {
+            data.journeyos_api_url = journeyosUrlInput.value.trim();
+        }
+
+        const journeyosKeyInput = document.getElementById('journeyos-api-key');
+        if (journeyosKeyInput && journeyosKeyInput.value &&
+            journeyosKeyInput.value !== journeyosKeyInput.placeholder) {
+            data.journeyos_api_key = journeyosKeyInput.value;
         }
         
         return data;

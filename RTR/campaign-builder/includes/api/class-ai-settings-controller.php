@@ -118,6 +118,8 @@ class AI_Settings_Controller extends \WP_REST_Controller {
                 'max_tokens' => (int) get_option('dr_gemini_max_tokens', 1000),
                 'rate_limit_enabled' => $this->is_rate_limit_enabled(),
                 'rate_limit' => (int) get_option('dr_rate_limit_per_hour', 100),
+                'journeyos_api_url' => get_option('directreach_journeyos_api_url', ''),
+                'journeyos_api_key_set' => ! empty( get_option('directreach_journeyos_api_key', '') ),
             ];
 
             return new \WP_REST_Response([
@@ -201,6 +203,20 @@ class AI_Settings_Controller extends \WP_REST_Controller {
                     update_option('dr_rate_limit_per_hour', $rate_limit);
                     $updated[] = 'rate_limit';
                 }
+            }
+
+            // Update JourneyOS API URL
+            if (isset($params['journeyos_api_url'])) {
+                $journeyos_url = esc_url_raw( trim( $params['journeyos_api_url'] ) );
+                update_option('directreach_journeyos_api_url', $journeyos_url);
+                $updated[] = 'journeyos_api_url';
+            }
+
+            // Update JourneyOS API Key (only update if a value is provided)
+            if (isset($params['journeyos_api_key']) && !empty($params['journeyos_api_key'])) {
+                $journeyos_key = sanitize_text_field($params['journeyos_api_key']);
+                update_option('directreach_journeyos_api_key', $journeyos_key);
+                $updated[] = 'journeyos_api_key';
             }
 
             // Log action
@@ -711,6 +727,16 @@ class AI_Settings_Controller extends \WP_REST_Controller {
                 'required' => false,
                 'minimum' => 10,
                 'maximum' => 1000,
+            ],
+            'journeyos_api_url' => [
+                'type' => 'string',
+                'required' => false,
+                'sanitize_callback' => 'esc_url_raw',
+            ],
+            'journeyos_api_key' => [
+                'type' => 'string',
+                'required' => false,
+                'sanitize_callback' => 'sanitize_text_field',
             ],
         ];
     }

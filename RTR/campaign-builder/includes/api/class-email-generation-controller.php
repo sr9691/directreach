@@ -1181,7 +1181,7 @@ class Email_Generation_Controller extends WP_REST_Controller {
         ) );
 
         $response = wp_remote_post( $endpoint, array(
-            'timeout' => 30,
+            'timeout' => 120,
             'headers' => array(
                 'Content-Type' => 'application/json',
                 'X-API-Key'    => $journeyos_key,

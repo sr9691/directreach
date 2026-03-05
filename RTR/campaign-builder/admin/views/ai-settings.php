@@ -197,6 +197,50 @@ if (!defined('ABSPATH')) {
                     </p>
                 </section>
 
+                <!-- JourneyOS Integration Section -->
+                <section class="settings-section">
+                    <h3>JourneyOS Integration</h3>
+                    <p class="help-text" style="margin-bottom: 1rem;">
+                        JourneyOS is the AI email generation service. Configure its URL and API key to enable the "Generate via JourneyOS" button on prospect cards.
+                    </p>
+
+                    <div class="form-group">
+                        <label for="journeyos-api-url">
+                            JourneyOS API URL <span class="required">*</span>
+                        </label>
+                        <input type="url"
+                               name="journeyos_api_url"
+                               id="journeyos-api-url"
+                               class="form-control"
+                               placeholder="https://your-service.modal.run">
+                        <span class="help-text">
+                            The base URL of your deployed JourneyOS FastAPI service (no trailing slash).
+                        </span>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="journeyos-api-key">
+                            JourneyOS API Key
+                        </label>
+                        <div class="input-with-button">
+                            <input type="password"
+                                   name="journeyos_api_key"
+                                   id="journeyos-api-key"
+                                   class="form-control"
+                                   placeholder="Enter JourneyOS X-API-Key">
+                            <button type="button"
+                                    class="btn-toggle-visibility"
+                                    id="toggle-journeyos-key"
+                                    title="Show/Hide API Key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                        <span class="help-text">
+                            The <code>JOURNEYOS_API_KEY</code> set in your JourneyOS <code>.env</code> file. Leave blank to keep the current key.
+                        </span>
+                    </div>
+                </section>
+
                 <!-- Save Button -->
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary" id="save-settings">
@@ -244,6 +288,18 @@ document.addEventListener('DOMContentLoaded', function() {
             const isPassword = apiKeyInput.type === 'password';
             apiKeyInput.type = isPassword ? 'text' : 'password';
             toggleBtn.querySelector('i').className = isPassword ? 'fas fa-eye-slash' : 'fas fa-eye';
+        });
+    }
+
+    // JourneyOS Key visibility toggle
+    const journeyosKeyInput = document.getElementById('journeyos-api-key');
+    const toggleJourneyosBtn = document.getElementById('toggle-journeyos-key');
+
+    if (journeyosKeyInput && toggleJourneyosBtn) {
+        toggleJourneyosBtn.addEventListener('click', function() {
+            const isPassword = journeyosKeyInput.type === 'password';
+            journeyosKeyInput.type = isPassword ? 'text' : 'password';
+            toggleJourneyosBtn.querySelector('i').className = isPassword ? 'fas fa-eye-slash' : 'fas fa-eye';
         });
     }
     
