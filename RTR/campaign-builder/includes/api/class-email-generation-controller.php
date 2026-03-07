@@ -1959,8 +1959,12 @@ class Email_Generation_Controller extends WP_REST_Controller {
         // X-API-Key auth (JourneyOS / external callers)
         $api_key = $request->get_header( 'X-API-Key' );
         if ( ! empty( $api_key ) ) {
-            $stored_key = get_option( 'directreach_journeyos_api_key', '' );
-            if ( ! empty( $stored_key ) && hash_equals( $stored_key, $api_key ) ) {
+            $journeyos_key = get_option( 'directreach_journeyos_api_key', '' );
+            if ( ! empty( $journeyos_key ) && hash_equals( $journeyos_key, $api_key ) ) {
+                return true;
+            }
+            $cpd_key = get_option( 'cpd_api_key', '' );
+            if ( ! empty( $cpd_key ) && hash_equals( $cpd_key, $api_key ) ) {
                 return true;
             }
             return new WP_Error(
