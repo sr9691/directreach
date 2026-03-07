@@ -108,7 +108,7 @@ class Email_Generation_Controller extends WP_REST_Controller {
         register_rest_route( $this->namespace, '/' . $this->rest_base . '/store-external', array(
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => array( $this, 'store_external_email' ),
-            'permission_callback' => array( $this, 'generate_permissions_check' ),
+            'permission_callback' => array( $this, 'store_external_permissions_check' ),
             'args' => array(
                 'prospect_id' => array(
                     'required' => true,
@@ -1111,7 +1111,7 @@ class Email_Generation_Controller extends WP_REST_Controller {
         );
 
         // --- 4. Call JourneyOS ---
-        $journeyos_result = $this->call_journeyos_generate( $prospect_id, $campaign_id );
+        $journeyos_result = $this->call_journeyos_generate( $prospect_id, $campaign_id, $email_number );
 
         if ( is_wp_error( $journeyos_result ) ) {
             // Rollback state
@@ -1155,11 +1155,12 @@ class Email_Generation_Controller extends WP_REST_Controller {
     /**
      * Call the JourneyOS FastAPI service to generate a single email.
      *
-     * @param int $prospect_id Prospect ID (rtr_prospects.id)
-     * @param int $campaign_id Campaign ID (dr_campaign_settings.id)
+     * @param int $prospect_id  Prospect ID (rtr_prospects.id)
+     * @param int $campaign_id  Campaign ID (dr_campaign_settings.id)
+     * @param int $email_number Email slot (1-5) determined by WordPress
      * @return array|WP_Error JourneyOS response data or error
      */
-    private function call_journeyos_generate( $prospect_id, $campaign_id ) {
+    private function call_journeyos_generate( $prospect_id, $campaign_id, $email_number ) {
         $journeyos_url = rtrim( get_option( 'directreach_journeyos_api_url', '' ), '/' );
         $journeyos_key = get_option( 'directreach_journeyos_api_key', '' );
 
@@ -1176,6 +1177,7 @@ class Email_Generation_Controller extends WP_REST_Controller {
         $body = wp_json_encode( array(
             'prospect_id'   => $prospect_id,
             'campaign_id'   => $campaign_id,
+            'email_number'  => (int) $email_number,
             'prospect_data' => null,
             'callback_url'  => null,
         ) );
@@ -1823,7 +1825,7 @@ class Email_Generation_Controller extends WP_REST_Controller {
         $result = $wpdb->update(
             $table,
             array( 'urls_sent' => wp_json_encode( $sent_urls ) ),
-            array( 'id' => $actual_prospect_id ),
+            array( 'id' => $prospect_id ),
             array( '%s' ),
             array( '%d' )
         );
@@ -1875,7 +1877,7 @@ class Email_Generation_Controller extends WP_REST_Controller {
                 'last_email_sent' => current_time( 'mysql' ),
                 'email_sequence_position' => $new_position
             ),
-            array( 'id' => $actual_prospect_id ),
+            array( 'id' => $prospect_id ),
             array( '%s', '%d' ),
             array( '%d' )
         );
@@ -1909,7 +1911,7 @@ class Email_Generation_Controller extends WP_REST_Controller {
     }
 
     /**
-     * Permission check for generation
+     * Permission check for generation (browser/logged-in users only)
      *
      * @param WP_REST_Request $request Request object
      * @return bool|WP_Error
@@ -1934,6 +1936,45 @@ class Email_Generation_Controller extends WP_REST_Controller {
         }
 
         return true;
+    }
+
+    /**
+     * Permission check for store-external (CIS write-back from JourneyOS)
+     *
+     * Accepts X-API-Key header (used by JourneyOS on Render).
+     * Falls back to logged-in check for browser-based calls.
+     *
+     * The key is stored in wp_options as 'directreach_journeyos_api_key'
+     * and must match the JOURNEYOS_API_KEY env var set on both sides.
+     *
+     * @param WP_REST_Request $request Request object
+     * @return bool|WP_Error
+     */
+    public function store_external_permissions_check( $request ) {
+        // X-API-Key auth (JourneyOS / external callers)
+        $api_key = $request->get_header( 'X-API-Key' );
+        if ( ! empty( $api_key ) ) {
+            $stored_key = get_option( 'directreach_journeyos_api_key', '' );
+            if ( ! empty( $stored_key ) && hash_equals( $stored_key, $api_key ) ) {
+                return true;
+            }
+            return new WP_Error(
+                'rest_forbidden',
+                'Invalid X-API-Key',
+                array( 'status' => 401 )
+            );
+        }
+
+        // Fallback: logged-in user
+        if ( is_user_logged_in() && current_user_can( 'read' ) ) {
+            return true;
+        }
+
+        return new WP_Error(
+            'rest_forbidden',
+            'Authentication required: provide X-API-Key header or log in.',
+            array( 'status' => 401 )
+        );
     }
 
     /**
