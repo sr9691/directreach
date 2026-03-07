@@ -925,7 +925,12 @@ class Email_Generation_Controller extends WP_REST_Controller {
                 return $i;
             }
 
-            // If 'ready' or 'generating', skip this prospect (already in progress)
+            // If 'ready', this is the next one (not yet sent — allow regenerate)
+            if ( $state === 'ready' ) {
+                return $i;
+            }
+
+            // If 'generating', skip (in progress)
             return null;
         }
 
