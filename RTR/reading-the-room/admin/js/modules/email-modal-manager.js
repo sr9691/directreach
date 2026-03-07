@@ -262,7 +262,7 @@ export default class EmailModalManager {
 
         // Update body
         const bodyDiv = this.modal.querySelector('.email-body');
-        bodyDiv.innerHTML = email.body_html || '<p>No content generated</p>';
+        bodyDiv.innerHTML = this._renderEmailBody(email.body_html) || '<p>No content generated</p>';
 
         // Enable editing
         subjectInput.removeAttribute('disabled');
@@ -504,7 +504,7 @@ export default class EmailModalManager {
         // Set body (READ-ONLY)
         const bodyDiv = this.modal.querySelector('.email-body');
         if (bodyDiv) {
-            bodyDiv.innerHTML = email.body_html || '';
+            bodyDiv.innerHTML = this._renderEmailBody(email.body_html) || '';
             bodyDiv.setAttribute('contenteditable', 'false');
             bodyDiv.classList.add('readonly');
         }
@@ -835,6 +835,20 @@ export default class EmailModalManager {
         if (errorMsg) {
             errorMsg.textContent = message || 'An unexpected error occurred.';
         }
+    }
+
+    /**
+     * Render email body for display.
+     * If content is plain text (no HTML tags), converts newlines to <br> tags
+     * so Field Note emails render with correct line breaks in the modal.
+     */
+    _renderEmailBody(html) {
+        if (!html) return '';
+        // If already contains HTML tags, use as-is
+        if (/<[a-z][\s\S]*>/i.test(html)) return html;
+        // Plain text: escape then convert newlines to <br>
+        const escaped = this._escapeHtml(html);
+        return escaped.replace(/\n/g, '<br>');
     }
 
     /**
