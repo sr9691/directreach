@@ -816,16 +816,6 @@ class Campaigns_Controller extends REST_Controller {
     }
 
     /**
-     * Check if user has permission to manage campaigns
-     *
-     * @return bool
-     */
-    public function check_permissions() {
-        return current_user_can('manage_options');
-    }
-
-
-    /**
      * Check if UTM campaign exists
      *
      * @param WP_REST_Request $request Request object
