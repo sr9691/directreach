@@ -516,7 +516,16 @@ export default class ProspectManager {
             editBtn.dataset.room = room;
             nameEl.appendChild(editBtn);
         }
-        
+
+        // Show "edited" indicator if contact was manually edited
+        if (prospect.contact_edited == 1) {
+            const editedIcon = document.createElement('span');
+            editedIcon.className = 'rtr-edited-indicator';
+            editedIcon.innerHTML = '<i class="fas fa-pen"></i>';
+            editedIcon.title = 'Contact info manually edited';
+            nameEl.appendChild(editedIcon);
+        }
+
         infoSection.appendChild(nameEl);
 
         // Job Title

@@ -498,6 +498,22 @@
 }
 
 
+/* Edited Indicator */
+.rtr-edited-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 6px;
+    color: #f59e0b;
+    font-size: 11px;
+    vertical-align: middle;
+    cursor: default;
+}
+
+.rtr-edited-indicator i {
+    font-size: 11px;
+}
+
 /* Edit Contact Button */
 .rtr-edit-contact-btn {
     display: inline-flex;

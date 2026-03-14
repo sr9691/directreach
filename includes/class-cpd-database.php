@@ -237,7 +237,15 @@ class CPD_Database {
             update_option('cpd_database_version', '2.1.0');
             $current_version = '2.1.0';
         }
-        
+
+        // Migration for contact_edited flag (2.1.0 -> 2.2.0)
+        if (version_compare($current_version, '2.2.0', '<')) {
+            error_log('CPD: Running migration to v2.2.0 (contact_edited flag)');
+            $this->migrate_to_2_2_0();
+            update_option('cpd_database_version', '2.2.0');
+            $current_version = '2.2.0';
+        }
+
         error_log("CPD Database: Migration completed. Current version: {$current_version}");
     }
 
@@ -388,6 +396,23 @@ class CPD_Database {
             error_log('CPD: Migration to v2.1.0 completed successfully');
         } else {
             error_log('CPD: Migration to v2.1.0 completed with warnings (check logs)');
+        }
+    }
+
+    /**
+     * Migration to v2.2.0: Add contact_edited column to rtr_prospects
+     */
+    private function migrate_to_2_2_0() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'rtr_prospects';
+
+        if (!$this->column_exists($table, 'contact_edited')) {
+            $result = $wpdb->query("ALTER TABLE {$table} ADD COLUMN contact_edited TINYINT(1) DEFAULT 0 AFTER contact_email");
+            if ($result === false) {
+                error_log("CPD: ERROR adding contact_edited column: " . $wpdb->last_error);
+            } else {
+                error_log("CPD: Added contact_edited column to {$table}");
+            }
         }
     }
 
@@ -572,6 +597,7 @@ class CPD_Database {
             job_title VARCHAR(255) NULL,
             contact_name VARCHAR(255),
             contact_email VARCHAR(255),
+            contact_edited TINYINT(1) DEFAULT 0,
             email_verified TINYINT(1) DEFAULT 0,
             email_verification_status VARCHAR(50) NULL,
             email_quality VARCHAR(50) NULL,

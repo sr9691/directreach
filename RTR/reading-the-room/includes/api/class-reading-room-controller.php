@@ -1176,18 +1176,21 @@ final class Reading_Room_Controller extends WP_REST_Controller
         // Update rtr_prospects table
         $prospect_update = [
             'contact_name' => $contact_name,
+            'contact_edited' => 1,
             'updated_at' => current_time('mysql')
         ];
-        
+
         if (!empty($contact_email)) {
             $prospect_update['contact_email'] = $contact_email;
         }
+
+        $prospect_format = array_fill(0, count($prospect_update), '%s');
 
         $prospect_updated = $wpdb->update(
             $wpdb->prefix . 'rtr_prospects',
             $prospect_update,
             ['visitor_id' => $visitor_id],
-            ['%s', '%s', '%s'],
+            $prospect_format,
             ['%d']
         );
 
@@ -1589,9 +1592,10 @@ final class Reading_Room_Controller extends WP_REST_Controller
         // Update rtr_prospects table (only has contact_name, contact_email, company_name)
         $prospect_update = [
             'contact_name' => $contact_name,
+            'contact_edited' => 1,
             'updated_at' => current_time('mysql')
         ];
-        
+
         if (!empty($contact_email)) {
             $prospect_update['contact_email'] = $contact_email;
         }
