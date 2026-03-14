@@ -1082,7 +1082,7 @@ final class Reading_Room_Controller extends WP_REST_Controller
         }
         
         // Check current_room column
-        if (!empty($prospect['current_room']) && in_array($prospect['current_room'], ['problem', 'solution', 'offer', 'sales'])) {
+        if (!empty($prospect['current_room']) && in_array($prospect['current_room'], ['problem', 'solution', 'offer'])) {
             return $prospect['current_room'];
         }
 
