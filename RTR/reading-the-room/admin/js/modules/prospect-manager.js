@@ -150,7 +150,16 @@ export default class ProspectManager {
                 this.handleBatchGenerate(room, batchBtn);
             }            
 
-            // Edit contact button
+            // Bounce button
+            const bounceBtn = e.target.closest('.rtr-bounce-btn');
+            if (bounceBtn) {
+                e.preventDefault();
+                const prospectId = bounceBtn.dataset.prospectId;
+                const visitorId = bounceBtn.dataset.visitorId;
+                const room = bounceBtn.dataset.room;
+                const emailNumber = parseInt(bounceBtn.dataset.emailNumber);
+                this.handleMarkBounced(prospectId, visitorId, room, emailNumber, bounceBtn);
+            }
 
             // Event Delegation - Lead Score Click
             const scoreValue = e.target.closest('.rtr-score-clickable');
@@ -485,19 +494,24 @@ export default class ProspectManager {
                             'Name Unknown';
         nameEl.textContent = prospectName;
         
-        // Add edit button if all emails are still in pending state
+        // Add edit button if all emails are still in pending state OR any email has bounced
         const prospectEmailStates = prospect.email_states || {};
         const allEmailsPending = Object.values(prospectEmailStates).every(
             email => !email?.state || email?.state === 'pending'
         );
-        
-        if (allEmailsPending) {
+        const anyEmailBounced = Object.values(prospectEmailStates).some(
+            email => email?.state === 'bounced'
+        );
+
+        if (allEmailsPending || anyEmailBounced) {
             const editBtn = document.createElement('button');
             editBtn.className = 'rtr-edit-contact-btn';
             editBtn.innerHTML = '<i class="fas fa-user-edit"></i>';
-            editBtn.title = prospectName === 'Name Unknown' 
-                ? 'Add contact information' 
-                : 'Update contact information';
+            editBtn.title = anyEmailBounced
+                ? 'Email bounced - update contact email'
+                : prospectName === 'Name Unknown'
+                    ? 'Add contact information'
+                    : 'Update contact information';
             editBtn.dataset.visitorId = prospect.visitor_id || prospect.id;
             editBtn.dataset.room = room;
             nameEl.appendChild(editBtn);
@@ -613,6 +627,10 @@ export default class ProspectManager {
                     icon.classList.add('fa-envelope-open-text');
                     emailBtn.classList.add('rtr-email-opened');
                     break;
+                case 'bounced':
+                    icon.classList.add('fa-exclamation-triangle');
+                    emailBtn.classList.add('rtr-email-bounced');
+                    break;
                 case 'generating':
                     icon.classList.add('fa-spinner', 'fa-spin');
                     emailBtn.classList.add('rtr-email-generating');
@@ -636,6 +654,33 @@ export default class ProspectManager {
         }
 
         rightSection.appendChild(emailSequence);
+
+        // Bounce buttons for sent emails
+        const hasSentEmails = Object.values(emailStates).some(
+            e => e?.state === 'sent'
+        );
+        if (hasSentEmails) {
+            const bounceContainer = document.createElement('div');
+            bounceContainer.className = 'rtr-bounce-actions';
+
+            for (let i = 1; i <= emailCount; i++) {
+                const emailKey = `email_${i}`;
+                const emailData = emailStates[emailKey] || {};
+                if (emailData.state === 'sent') {
+                    const bounceBtn = document.createElement('button');
+                    bounceBtn.className = 'rtr-action-btn rtr-bounce-btn';
+                    bounceBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Bounced';
+                    bounceBtn.title = `Mark email ${i} as bounced`;
+                    bounceBtn.dataset.prospectId = prospect.id;
+                    bounceBtn.dataset.visitorId = prospect.visitor_id || prospect.id;
+                    bounceBtn.dataset.room = room;
+                    bounceBtn.dataset.emailNumber = i;
+                    bounceContainer.appendChild(bounceBtn);
+                }
+            }
+
+            rightSection.appendChild(bounceContainer);
+        }
 
         // Actions
         const actionsContainer = document.createElement('div');
@@ -692,16 +737,16 @@ export default class ProspectManager {
             const email1 = emailStates['email_1'];
             return email1?.state === 'pending' || email1?.state === 'ready';
         }
-        
-        // Check if all previous emails are sent/opened
+
+        // Check if all previous emails are sent/opened/bounced
         for (let i = 1; i < emailNumber; i++) {
             const emailKey = `email_${i}`;
             const state = emailStates[emailKey]?.state;
-            if (state !== 'sent' && state !== 'opened') {
+            if (state !== 'sent' && state !== 'opened' && state !== 'bounced') {
                 return false;
             }
         }
-        
+
         // This email is next if it's pending or ready
         const currentEmail = emailStates[`email_${emailNumber}`];
         return currentEmail?.state === 'pending' || currentEmail?.state === 'ready';
@@ -710,16 +755,16 @@ export default class ProspectManager {
     isEmailEnabled(emailStates, emailNumber) {
         // Email 1 is always enabled
         if (emailNumber === 1) return true;
-        
-        // Check if all previous emails are sent/opened
+
+        // Check if all previous emails are sent/opened/bounced
         for (let i = 1; i < emailNumber; i++) {
             const emailKey = `email_${i}`;
             const state = emailStates[emailKey]?.state;
-            if (state !== 'sent' && state !== 'opened') {
+            if (state !== 'sent' && state !== 'opened' && state !== 'bounced') {
                 return false;
             }
         }
-        
+
         return true;
     }  
 
@@ -753,7 +798,8 @@ export default class ProspectManager {
             'ready': 'rtr-email-ready',
             'sent': 'rtr-email-sent',
             'opened': 'rtr-email-opened',
-            'failed': 'rtr-email-failed'
+            'failed': 'rtr-email-failed',
+            'bounced': 'rtr-email-bounced'
         };
         return classMap[state] || 'rtr-email-pending';
     }
@@ -770,7 +816,8 @@ export default class ProspectManager {
             'ready': 'fas fa-envelope-open',
             'sent': 'fas fa-paper-plane',
             'opened': 'fas fa-envelope-open-text',
-            'failed': 'fas fa-exclamation-triangle'
+            'failed': 'fas fa-exclamation-triangle',
+            'bounced': 'fas fa-exclamation-triangle'
         };
         return iconMap[state] || 'fas fa-envelope';
     }
@@ -788,6 +835,9 @@ export default class ProspectManager {
         const openedAt = emailData?.opened_at || null;
 
         // Build rich tooltip for sent/opened states showing both dates
+        if (state === 'bounced') {
+            return `Email ${emailNumber}: Bounced - update contact email`;
+        }
         if (state === 'sent' && sentAt) {
             return `Email ${emailNumber}: Sent ${this.formatDate(sentAt)}`;
         }
@@ -1000,6 +1050,7 @@ export default class ProspectManager {
                 
             case 'sent':
             case 'opened':
+            case 'bounced':
                 this.viewEmailHistory(visitorId, room, emailNumber);
                 break;
                 
@@ -1559,6 +1610,69 @@ export default class ProspectManager {
             }
         }
         return null;
+    }
+
+    /**
+     * Mark an email as bounced via API, then refresh the prospect card.
+     */
+    async handleMarkBounced(prospectId, visitorId, room, emailNumber, button) {
+        if (button.disabled) return;
+
+        // Confirm with user
+        if (this.uiManager) {
+            const confirmed = await this.uiManager.confirmAction(
+                'Mark as Bounced',
+                `Mark email ${emailNumber} as bounced? This will enable the edit button so you can update the contact email.`,
+                'Mark Bounced',
+                'Cancel'
+            );
+            if (!confirmed) return;
+        }
+
+        button.disabled = true;
+        const originalHTML = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+        try {
+            const response = await fetch(
+                `${this.apiUrl}/prospects/${prospectId}/mark-bounced`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-WP-Nonce': this.nonce
+                    },
+                    body: JSON.stringify({
+                        email_number: emailNumber,
+                        room_type: room
+                    })
+                }
+            );
+
+            const data = await response.json();
+
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || 'Failed to mark as bounced');
+            }
+
+            // Update the email button to bounced state
+            this.updateButtonState(visitorId, emailNumber, 'bounced');
+
+            // Re-render this prospect row to show the edit button and hide the bounce button
+            this.loadRoomProspects(room);
+
+            if (this.uiManager) {
+                this.uiManager.notify('Email marked as bounced. Use the edit button to update the contact email.', 'warning');
+            }
+        } catch (error) {
+            console.error('Failed to mark email as bounced:', error);
+            button.disabled = false;
+            button.innerHTML = originalHTML;
+
+            if (this.uiManager) {
+                this.uiManager.notify(`Failed to mark as bounced: ${error.message}`, 'error');
+            }
+        }
     }
 
     escapeHtml(text) {

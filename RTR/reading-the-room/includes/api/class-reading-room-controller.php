@@ -147,6 +147,19 @@ final class Reading_Room_Controller extends WP_REST_Controller
             ]
         ]);
 
+        // Mark email as bounced
+        register_rest_route($this->namespace, '/prospects/(?P<id>\d+)/mark-bounced', [
+            [
+                'methods'             => WP_REST_Server::CREATABLE,
+                'callback'            => [$this, 'mark_email_bounced'],
+                'permission_callback' => [$this, 'check_permission'],
+                'args'                => [
+                    'email_number' => ['type' => 'integer', 'required' => true],
+                    'room_type'    => ['type' => 'string', 'required' => true],
+                ],
+            ],
+        ]);
+
         register_rest_route(
             'directreach/v1',
             '/reading-room/prospects/(?P<id>\d+)/verify-email',
@@ -1769,7 +1782,10 @@ final class Reading_Room_Controller extends WP_REST_Controller
                 $state = 'pending';
                 $timestamp = null;
                 
-                if (!empty($tracking->opened_at)) {
+                if ($tracking->status === 'bounced') {
+                    $state = 'bounced';
+                    $timestamp = $tracking->copied_at ?: $tracking->created_at;
+                } elseif (!empty($tracking->opened_at)) {
                     $state = 'opened';
                     $timestamp = $tracking->opened_at;
                 } elseif (!empty($tracking->copied_at)) {
@@ -1834,6 +1850,61 @@ final class Reading_Room_Controller extends WP_REST_Controller
         }
 
         return $grouped;
+    }
+
+    /**
+     * Mark an email as bounced.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function mark_email_bounced(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $prospect_id  = (int) $request->get_param('id');
+        $email_number = (int) $request->get_param('email_number');
+        $room_type    = sanitize_text_field($request->get_param('room_type'));
+
+        $table = $wpdb->prefix . 'rtr_email_tracking';
+
+        // Find the tracking record
+        $tracking = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM {$table}
+             WHERE prospect_id = %d AND room_type = %s AND email_number = %d
+             ORDER BY created_at DESC LIMIT 1",
+            $prospect_id,
+            $room_type,
+            $email_number
+        ));
+
+        if (!$tracking) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Email tracking record not found.',
+            ], 404);
+        }
+
+        $updated = $wpdb->update(
+            $table,
+            ['status' => 'bounced'],
+            ['id' => $tracking->id],
+            ['%s'],
+            ['%d']
+        );
+
+        if ($updated === false) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Failed to update email status.',
+            ], 500);
+        }
+
+        return new WP_REST_Response([
+            'success'      => true,
+            'message'      => 'Email marked as bounced.',
+            'email_number' => $email_number,
+            'prospect_id'  => $prospect_id,
+        ]);
     }
 
     /**

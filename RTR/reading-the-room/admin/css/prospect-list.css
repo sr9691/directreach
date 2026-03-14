@@ -263,6 +263,40 @@
     color: #f59e0b !important;
 }
 
+.rtr-email-bounced,
+.rtr-email-bounced i {
+    color: #ef4444;
+}
+
+.rtr-bounce-actions {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.rtr-bounce-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: transparent;
+    color: #ef4444;
+    border: 1px solid #ef4444;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: all 0.2s ease;
+}
+
+.rtr-bounce-btn:hover {
+    background: #ef4444;
+    color: white;
+}
+
+.rtr-bounce-btn i {
+    font-size: 10px;
+}
+
 .rtr-email-disabled {
     opacity: 0.3 !important;
     cursor: not-allowed !important;
