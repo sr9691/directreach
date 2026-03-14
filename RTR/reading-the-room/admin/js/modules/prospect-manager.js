@@ -588,7 +588,7 @@ export default class ProspectManager {
             emailBtn.dataset.room = room;
             emailBtn.dataset.emailNumber = i;
             emailBtn.dataset.emailState = state;
-            emailBtn.title = this.getEmailButtonTooltip(state, i, emailData.timestamp);
+            emailBtn.title = this.getEmailButtonTooltip(state, i, emailData);
 
             const isNextInSequence = this.isNextInSequence(emailStates, i);
             if (isNextInSequence && (state === 'ready' || state === 'pending')) {
@@ -782,7 +782,23 @@ export default class ProspectManager {
      * @param {String|null} timestamp - State timestamp
      * @returns {String} Tooltip text
      */
-    getEmailButtonTooltip(state, emailNumber, timestamp) {
+    getEmailButtonTooltip(state, emailNumber, emailData) {
+        const timestamp = emailData?.timestamp || null;
+        const sentAt = emailData?.sent_at || null;
+        const openedAt = emailData?.opened_at || null;
+
+        // Build rich tooltip for sent/opened states showing both dates
+        if (state === 'sent' && sentAt) {
+            return `Email ${emailNumber}: Sent ${this.formatDate(sentAt)}`;
+        }
+        if (state === 'opened' && sentAt) {
+            const parts = [`Sent ${this.formatDate(sentAt)}`];
+            if (openedAt) {
+                parts.push(`Opened ${this.formatDate(openedAt)}`);
+            }
+            return `Email ${emailNumber}: ${parts.join(' · ')}`;
+        }
+
         const tooltipMap = {
             'pending': `Email ${emailNumber}: Click to generate`,
             'generating': `Email ${emailNumber}: Generating...`,
@@ -1192,7 +1208,7 @@ export default class ProspectManager {
         }
         
         // Update tooltip
-        button.title = this.getEmailButtonTooltip(newState, emailNumber, timestamp);
+        button.title = this.getEmailButtonTooltip(newState, emailNumber, { timestamp });
         
         // Update disabled state
         if (newState === 'generating') {

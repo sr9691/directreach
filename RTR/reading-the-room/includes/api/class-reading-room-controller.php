@@ -572,6 +572,10 @@ final class Reading_Room_Controller extends WP_REST_Controller
                     (int) $prospect['id'],
                     $prospect['current_room']
                 );
+                // Add email states grouped by room for full history
+                $prospect['email_states_by_room'] = $this->get_all_room_email_states(
+                    (int) $prospect['id']
+                );
             }
             
             // Parse intelligence response_data
@@ -1784,18 +1788,52 @@ final class Reading_Room_Controller extends WP_REST_Controller
                 
                 $email_states["email_$i"] = [
                     'state' => $state,
-                    'timestamp' => $timestamp
+                    'timestamp' => $timestamp,
+                    'sent_at' => $tracking->copied_at ?: null,
+                    'opened_at' => $tracking->opened_at ?: null,
                 ];
             } else {
                 // No tracking record = pending state
                 $email_states["email_$i"] = [
                     'state' => 'pending',
-                    'timestamp' => null
+                    'timestamp' => null,
+                    'sent_at' => null,
+                    'opened_at' => null,
                 ];
             }
         }
-        
+
         return $email_states;
+    }
+
+    /**
+     * Get email states for a prospect across ALL rooms, grouped by room.
+     * Only includes rooms that have at least one tracking record.
+     *
+     * @param int $prospect_id Prospect ID
+     * @return array Email states grouped by room type
+     */
+    private function get_all_room_email_states(int $prospect_id): array
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'rtr_email_tracking';
+
+        // Find which rooms have tracking records for this prospect
+        $rooms = $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT room_type FROM {$table} WHERE prospect_id = %d ORDER BY FIELD(room_type, 'problem', 'solution', 'offer')",
+            $prospect_id
+        ));
+
+        if (empty($rooms)) {
+            return [];
+        }
+
+        $grouped = [];
+        foreach ($rooms as $room) {
+            $grouped[$room] = $this->get_email_states($prospect_id, $room);
+        }
+
+        return $grouped;
     }
 
     /**

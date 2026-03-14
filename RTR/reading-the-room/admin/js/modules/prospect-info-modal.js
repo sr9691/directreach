@@ -628,7 +628,7 @@ const data = await response.json();
                 ${this.renderRecentPages(visitor.recent_page_urls)}
 
                 <!-- Email States Section -->
-                ${this.renderEmailStates(prospect.email_states)}
+                ${this.renderEmailStates(prospect.email_states, prospect.email_states_by_room)}
 
                 <!-- AI Intelligence Section -->
                 ${this.renderIntelligence(intelligence)}
@@ -695,37 +695,91 @@ const data = await response.json();
         `;
     }
 
-    renderEmailStates(emailStates) {
+    renderEmailStates(emailStates, emailStatesByRoom) {
+        // If we have grouped-by-room data, render grouped view
+        if (emailStatesByRoom && Object.keys(emailStatesByRoom).length > 0) {
+            return this.renderEmailStatesByRoom(emailStatesByRoom);
+        }
+
+        // Fallback to flat view for backwards compatibility
         if (!emailStates) return '';
-        
+
         let states;
         try {
             states = typeof emailStates === 'string' ? JSON.parse(emailStates) : emailStates;
         } catch (e) {
             return '';
         }
-        
+
         if (!states || Object.keys(states).length === 0) return '';
-        
+
         return `
             <div class="info-section">
                 <h4 class="info-section-title">
                     <i class="fas fa-envelope"></i> Email Sequence Status
                 </h4>
-                <div class="email-states-grid">
-                    ${Object.keys(states).sort().map(key => {
-                        const emailData = states[key] || {};
-                        const emailNum = key.replace('email_', '');
-                        const state = emailData.state || emailData.status || 'pending';
-                        return `
-                            <div class="email-state-item">
-                                <span class="email-number">Email ${emailNum}</span>
-                                <span class="email-status ${state}">${this.formatEmailState(state)}</span>
-                                ${emailData.timestamp || emailData.sent_at ? `<span class="email-timestamp">${this.formatDate(emailData.timestamp || emailData.sent_at)}</span>` : ''}
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
+                ${this.renderEmailStatesGrid(states)}
+            </div>
+        `;
+    }
+
+    renderEmailStatesByRoom(emailStatesByRoom) {
+        const roomOrder = ['problem', 'solution', 'offer'];
+        const roomLabels = {
+            'problem': 'Prospect Room',
+            'solution': 'Solutions Room',
+            'offer': 'Offer Room'
+        };
+
+        const roomSections = roomOrder
+            .filter(room => emailStatesByRoom[room])
+            .map(room => {
+                const states = emailStatesByRoom[room];
+                return `
+                    <div class="email-room-group">
+                        <h5 class="email-room-label">${roomLabels[room] || room}</h5>
+                        ${this.renderEmailStatesGrid(states)}
+                    </div>
+                `;
+            }).join('');
+
+        if (!roomSections) return '';
+
+        return `
+            <div class="info-section">
+                <h4 class="info-section-title">
+                    <i class="fas fa-envelope"></i> Email Sequence Status
+                </h4>
+                ${roomSections}
+            </div>
+        `;
+    }
+
+    renderEmailStatesGrid(states) {
+        return `
+            <div class="email-states-grid">
+                ${Object.keys(states).sort().map(key => {
+                    const emailData = states[key] || {};
+                    const emailNum = key.replace('email_', '');
+                    const state = emailData.state || emailData.status || 'pending';
+                    const sentAt = emailData.sent_at || null;
+                    const openedAt = emailData.opened_at || null;
+                    let timestampDisplay = '';
+                    if (sentAt && openedAt) {
+                        timestampDisplay = `<span class="email-timestamp">Sent ${this.formatDate(sentAt)} · Opened ${this.formatDate(openedAt)}</span>`;
+                    } else if (sentAt) {
+                        timestampDisplay = `<span class="email-timestamp">Sent ${this.formatDate(sentAt)}</span>`;
+                    } else if (emailData.timestamp) {
+                        timestampDisplay = `<span class="email-timestamp">${this.formatDate(emailData.timestamp)}</span>`;
+                    }
+                    return `
+                        <div class="email-state-item">
+                            <span class="email-number">Email ${emailNum}</span>
+                            <span class="email-status ${state}">${this.formatEmailState(state)}</span>
+                            ${timestampDisplay}
+                        </div>
+                    `;
+                }).join('')}
             </div>
         `;
     }

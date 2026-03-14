@@ -472,6 +472,23 @@
 }
 
 /* Email States Grid */
+.email-room-group {
+    margin-bottom: 1rem;
+}
+
+.email-room-group:last-child {
+    margin-bottom: 0;
+}
+
+.email-room-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #374151;
+    margin: 0 0 0.5rem 0;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+
 .email-states-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
