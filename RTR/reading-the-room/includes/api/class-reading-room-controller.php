@@ -587,7 +587,8 @@ final class Reading_Room_Controller extends WP_REST_Controller
                 );
                 // Add email states grouped by room for full history
                 $prospect['email_states_by_room'] = $this->get_all_room_email_states(
-                    (int) $prospect['id']
+                    (int) $prospect['id'],
+                    $prospect['current_room']
                 );
             }
             
@@ -1854,7 +1855,7 @@ final class Reading_Room_Controller extends WP_REST_Controller
      * @param int $prospect_id Prospect ID
      * @return array Email states grouped by room type
      */
-    private function get_all_room_email_states(int $prospect_id): array
+    private function get_all_room_email_states(int $prospect_id, string $current_room = ''): array
     {
         global $wpdb;
         $table = $wpdb->prefix . 'rtr_email_tracking';
@@ -1865,9 +1866,32 @@ final class Reading_Room_Controller extends WP_REST_Controller
             $prospect_id
         ));
 
+        // Always include the current room so grouped view renders
+        if (!empty($current_room) && !in_array($current_room, $rooms, true)) {
+            $rooms[] = $current_room;
+        }
+
+        // Also include all rooms up to current room (prospect has passed through them)
+        $room_order = ['problem', 'solution', 'offer'];
+        if (!empty($current_room)) {
+            $current_index = array_search($current_room, $room_order);
+            if ($current_index !== false) {
+                for ($i = 0; $i <= $current_index; $i++) {
+                    if (!in_array($room_order[$i], $rooms, true)) {
+                        $rooms[] = $room_order[$i];
+                    }
+                }
+            }
+        }
+
         if (empty($rooms)) {
             return [];
         }
+
+        // Sort rooms in correct order
+        usort($rooms, function($a, $b) use ($room_order) {
+            return array_search($a, $room_order) - array_search($b, $room_order);
+        });
 
         $grouped = [];
         foreach ($rooms as $room) {

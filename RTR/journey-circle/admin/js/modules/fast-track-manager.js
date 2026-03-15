@@ -183,6 +183,10 @@
                 lines.push('&#128260; Generating problem titles...');
                 lines.push('&#9203; Generate solution titles');
                 lines.push('&#9203; Generate articles (0/' + this.totalArticles + ')');
+            } else if (phase === 'problems-retry') {
+                lines.push('&#128260; Generating problem titles... (retrying)');
+                lines.push('&#9203; Generate solution titles');
+                lines.push('&#9203; Generate articles (0/' + this.totalArticles + ')');
             } else if (phase === 'problems-done') {
                 lines.push('&#9989; Generated problem titles (5 selected)');
                 lines.push('&#128260; Generating solution titles... ' + (detail || ''));
@@ -314,30 +318,45 @@
 
         async _generateProblemTitles() {
             var state = this.workflow.getState();
+            var maxRetries = 2;
+            var data;
 
-            var response = await fetch(this.apiBase + '/ai/generate-problem-titles', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-WP-Nonce': this.nonce
-                },
-                body: JSON.stringify({
-                    service_area_id: state.serviceAreaId || 0,
-                    service_area_name: '',
-                    primary_problem_statement: state.primaryProblemStatement || '',
-                    industries: state.industries || [],
-                    brain_content: state.brainContent || [],
-                    existing_assets: state.existingAssets || [],
-                    force_refresh: false,
-                    previous_titles: []
-                }),
-                signal: this.abortController.signal
-            });
+            for (var attempt = 0; attempt <= maxRetries; attempt++) {
+                var response = await fetch(this.apiBase + '/ai/generate-problem-titles', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-WP-Nonce': this.nonce
+                    },
+                    body: JSON.stringify({
+                        service_area_id: state.serviceAreaId || 0,
+                        service_area_name: '',
+                        primary_problem_statement: state.primaryProblemStatement || '',
+                        industries: state.industries || [],
+                        brain_content: state.brainContent || [],
+                        existing_assets: state.existingAssets || [],
+                        force_refresh: false,
+                        previous_titles: []
+                    }),
+                    signal: this.abortController.signal
+                });
 
-            var data = await response.json();
+                data = await response.json();
 
-            if (!data.success || !data.titles || data.titles.length === 0) {
-                throw new Error(data.error || data.message || 'Failed to generate problem titles.');
+                // If success or non-timeout error, stop retrying
+                if (data.success && data.titles && data.titles.length > 0) {
+                    break;
+                }
+
+                var errorCode = data.code || '';
+                if (errorCode !== 'api_timeout' || attempt === maxRetries) {
+                    throw new Error(data.error || data.message || 'Failed to generate problem titles.');
+                }
+
+                // Timeout — retry after a short delay
+                console.warn('[FastTrack] Problem titles timed out, retrying (attempt ' + (attempt + 2) + ')...');
+                this._updateProgress(5, this._buildStepLines('problems-retry'));
+                await new Promise(function(r) { setTimeout(r, 2000); });
             }
 
             // Select top 5
@@ -380,33 +399,45 @@
                     this._buildStepLines('solutions', '(' + (i + 1) + '/' + problems.length + ')')
                 );
 
-                var response = await fetch(this.apiBase + '/ai/generate-solution-titles', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-WP-Nonce': this.nonce
-                    },
-                    body: JSON.stringify({
-                        problem_id: problem.id,
-                        problem_title: problem.title,
-                        service_area_id: state.serviceAreaId || 0,
-                        service_area_name: '',
-                        industries: state.industries || [],
-                        brain_content: state.brainContent || [],
-                        existing_assets: state.existingAssets || [],
-                        force_refresh: false,
-                        exclude_titles: []
-                    }),
-                    signal: this.abortController.signal
-                });
+                var data;
+                var maxRetries = 2;
+                for (var attempt = 0; attempt <= maxRetries; attempt++) {
+                    var response = await fetch(this.apiBase + '/ai/generate-solution-titles', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-WP-Nonce': this.nonce
+                        },
+                        body: JSON.stringify({
+                            problem_id: problem.id,
+                            problem_title: problem.title,
+                            service_area_id: state.serviceAreaId || 0,
+                            service_area_name: '',
+                            industries: state.industries || [],
+                            brain_content: state.brainContent || [],
+                            existing_assets: state.existingAssets || [],
+                            force_refresh: false,
+                            exclude_titles: []
+                        }),
+                        signal: this.abortController.signal
+                    });
 
-                var data = await response.json();
+                    data = await response.json();
 
-                if (!data.success || !data.titles || data.titles.length === 0) {
-                    throw new Error(
-                        'Failed to generate solution titles for "' + problem.title + '": ' +
-                        (data.error || data.message || 'No titles returned.')
-                    );
+                    if (data.success && data.titles && data.titles.length > 0) {
+                        break;
+                    }
+
+                    var errorCode = data.code || '';
+                    if (errorCode !== 'api_timeout' || attempt === maxRetries) {
+                        throw new Error(
+                            'Failed to generate solution titles for "' + problem.title + '": ' +
+                            (data.error || data.message || 'No titles returned.')
+                        );
+                    }
+
+                    console.warn('[FastTrack] Solution titles timed out for "' + problem.title + '", retrying...');
+                    await new Promise(function(r) { setTimeout(r, 2000); });
                 }
 
                 solutionSuggestions[problem.id] = data.titles;

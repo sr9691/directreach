@@ -57,7 +57,7 @@ class DR_AI_Content_Generator {
      *
      * @var int
      */
-    const API_TIMEOUT = 30;
+    const API_TIMEOUT = 60;
 
     /**
      * Maximum number of problem titles to request.
