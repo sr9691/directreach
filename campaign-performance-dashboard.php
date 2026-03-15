@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define plugin constants.
-define( 'CPD_DASHBOARD_VERSION', '2.0.0' );
+define( 'CPD_DASHBOARD_VERSION', '2.2.0' );
 define( 'CPD_DASHBOARD_PLUGIN_DIR', plugin_dir_path( __FILE__ ) ?: __DIR__ . '/' );
 define( 'CPD_DASHBOARD_PLUGIN_URL', plugin_dir_url( __FILE__ ) ?: plugins_url( '/', __FILE__ ) );
 
@@ -126,8 +126,8 @@ function cpd_check_database_version() {
     
     $current_version = $database->get_current_version();
     
-    // If version is below 2.0.0, run migrations
-    if ( version_compare( $current_version, '2.0.0', '<' ) ) {
+    // If version is below current, run migrations
+    if ( version_compare( $current_version, '2.2.0', '<' ) ) {
         error_log( 'CPD: Detected old database version, running migrations...' );
         
         $database->migrate_database();
