@@ -1189,3 +1189,156 @@
     background: #fce8e6;
     color: #c5221f;
 }
+
+/* ============================================
+   FAST TRACK
+   ============================================ */
+
+.jc-fast-track-btn {
+    background: #f59e0b;
+    color: #fff;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background .2s, transform .1s;
+    margin-right: 8px;
+}
+.jc-fast-track-btn:hover {
+    background: #d97706;
+    transform: translateY(-1px);
+}
+.jc-fast-track-btn:active {
+    transform: translateY(0);
+}
+.jc-fast-track-btn .fa-bolt {
+    margin-right: 4px;
+}
+
+/* Fast Track Modal */
+.jc-ft-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.55);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.jc-ft-modal {
+    background: #fff;
+    border-radius: 12px;
+    width: 520px;
+    max-width: 92vw;
+    padding: 32px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.3);
+}
+
+.jc-ft-modal h3 {
+    margin: 0 0 20px;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.jc-ft-progress-bar {
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 24px;
+}
+
+.jc-ft-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #f59e0b, #eab308);
+    border-radius: 4px;
+    transition: width .4s ease;
+    width: 0;
+}
+
+.jc-ft-steps {
+    list-style: none;
+    margin: 0 0 24px;
+    padding: 0;
+}
+
+.jc-ft-steps li {
+    padding: 8px 0;
+    font-size: 14px;
+    color: #6b7280;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.jc-ft-steps li:last-child {
+    border-bottom: none;
+}
+
+.jc-ft-steps li .ft-icon {
+    width: 22px;
+    text-align: center;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.jc-ft-steps li.ft-done {
+    color: #059669;
+}
+
+.jc-ft-steps li.ft-active {
+    color: #1e293b;
+    font-weight: 600;
+}
+
+.jc-ft-steps li.ft-error {
+    color: #dc2626;
+}
+
+.jc-ft-detail {
+    font-size: 12px;
+    color: #9ca3af;
+    margin-left: 32px;
+    margin-top: -4px;
+    padding-bottom: 6px;
+}
+
+.jc-ft-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.jc-ft-actions .btn {
+    padding: 8px 20px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid #d1d5db;
+}
+
+.jc-ft-actions .btn-cancel {
+    background: #fff;
+    color: #374151;
+}
+
+.jc-ft-actions .btn-cancel:hover {
+    background: #f3f4f6;
+}
+
+.jc-ft-actions .btn-retry {
+    background: #f59e0b;
+    color: #fff;
+    border-color: #f59e0b;
+}
+
+.jc-ft-actions .btn-retry:hover {
+    background: #d97706;
+}

@@ -161,6 +161,30 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
                 'permission_callback' => array( $this, 'check_permissions' ),
             ),
         ) );
+
+        // POST /ai/fast-track-content — generate full article using JourneyOS methodology.
+        register_rest_route( $this->namespace, '/' . $this->rest_base . '/fast-track-content', array(
+            array(
+                'methods'             => WP_REST_Server::CREATABLE,
+                'callback'            => array( $this, 'fast_track_content' ),
+                'permission_callback' => array( $this, 'check_permissions' ),
+                'args'                => array(
+                    'problem_title'      => array( 'type' => 'string', 'required' => true ),
+                    'solution_title'     => array( 'type' => 'string', 'required' => true ),
+                    'focus'              => array(
+                        'type'     => 'string',
+                        'required' => true,
+                        'enum'     => array( 'problem', 'solution' ),
+                    ),
+                    'brain_content'      => array( 'type' => 'array', 'default' => array() ),
+                    'existing_assets'    => array( 'type' => 'array', 'default' => array() ),
+                    'industries'         => array( 'type' => 'array', 'default' => array() ),
+                    'service_area_id'    => array( 'type' => 'integer', 'default' => 0 ),
+                    'content_set_titles' => array( 'type' => 'array', 'default' => array() ),
+                    'evaluative_lens'    => array( 'type' => 'string', 'default' => '' ),
+                ),
+            ),
+        ) );
     }
 
     // =========================================================================
@@ -532,6 +556,61 @@ class DR_AI_Content_Controller extends WP_REST_Controller {
         }
 
         $result = $this->generator->generate_content( $args );
+
+        if ( is_wp_error( $result ) ) {
+            return new WP_REST_Response( array(
+                'success' => false,
+                'error'   => $result->get_error_message(),
+            ), 503 );
+        }
+
+        return new WP_REST_Response( array(
+            'success' => true,
+            'content' => $result['content'],
+        ), 200 );
+    }
+
+    // =========================================================================
+    // FAST TRACK CONTENT
+    // =========================================================================
+
+    /**
+     * Generate a full article using JourneyOS Fast Track methodology.
+     *
+     * Produces a complete problem or solution article directly (no outline step)
+     * using enhanced prompts based on the JourneyOS prompt structure.
+     *
+     * @since 2.3.0
+     * @param WP_REST_Request $request Full details about the request.
+     * @return WP_REST_Response Response object.
+     */
+    public function fast_track_content( $request ) {
+        // Extend PHP execution time — Fast Track articles use large prompts.
+        if ( function_exists( 'set_time_limit' ) ) {
+            @set_time_limit( 120 );
+        }
+
+        $args = array(
+            'problem_title'      => $request->get_param( 'problem_title' ),
+            'solution_title'     => $request->get_param( 'solution_title' ),
+            'focus'              => $request->get_param( 'focus' ),
+            'brain_content'      => $request->get_param( 'brain_content' ) ?: array(),
+            'existing_assets'    => $this->sanitize_existing_assets_param( $request->get_param( 'existing_assets' ) ),
+            'industries'         => $request->get_param( 'industries' ) ?: array(),
+            'service_area_id'    => $request->get_param( 'service_area_id' ) ?: 0,
+            'content_set_titles' => $request->get_param( 'content_set_titles' ) ?: array(),
+            'evaluative_lens'    => $request->get_param( 'evaluative_lens' ) ?: '',
+        );
+
+        // Enrich brain content and existing assets with extracted text.
+        if ( ! empty( $args['brain_content'] ) ) {
+            $args['brain_content'] = $this->enrich_brain_content_with_extracts( $args['brain_content'] );
+        }
+        if ( ! empty( $args['existing_assets'] ) ) {
+            $args['existing_assets'] = $this->enrich_existing_assets( $args['existing_assets'] );
+        }
+
+        $result = $this->generator->generate_fast_track_article( $args );
 
         if ( is_wp_error( $result ) ) {
             return new WP_REST_Response( array(

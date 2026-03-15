@@ -2156,4 +2156,300 @@ PROMPT;
         return $prompt;
     }
 
+    // =========================================================================
+    // FAST TRACK ARTICLE GENERATION (JourneyOS Methodology)
+    // =========================================================================
+
+    /**
+     * Generate a full article using JourneyOS Fast Track methodology.
+     *
+     * Produces a complete problem or solution article directly (no outline step)
+     * following the JourneyOS prompt structure with strict editorial rules.
+     *
+     * @since 2.3.0
+     *
+     * @param array $args {
+     *     @type string $problem_title      The problem article title.
+     *     @type string $solution_title     The solution article title.
+     *     @type string $focus              'problem' or 'solution'.
+     *     @type array  $brain_content      Brain content items.
+     *     @type array  $existing_assets    Existing asset items.
+     *     @type array  $industries         Industry names/IDs.
+     *     @type int    $service_area_id    Service area ID.
+     *     @type array  $content_set_titles All 10 titles for lane discipline.
+     *     @type string $evaluative_lens    Evaluative lens (solution articles).
+     * }
+     * @return array|WP_Error Array with 'content' key on success, WP_Error on failure.
+     */
+    public function generate_fast_track_article( $args ) {
+        if ( ! $this->is_configured() ) {
+            return new \WP_Error( 'not_configured', 'Gemini API key is not configured.' );
+        }
+
+        $problem_title  = sanitize_text_field( $args['problem_title'] ?? '' );
+        $solution_title = sanitize_text_field( $args['solution_title'] ?? '' );
+        $focus          = sanitize_text_field( $args['focus'] ?? 'problem' );
+        $brain_summary  = $this->summarize_brain_content( $args['brain_content'] ?? array() );
+        $tone_profile   = $this->get_tone_style_profile( $args['brain_content'] ?? array(), $args['existing_assets'] ?? array() );
+        $assets_summary = $this->summarize_existing_assets( $args['existing_assets'] ?? array() );
+        $industries_str = $this->format_industries( $args['industries'] ?? array() );
+        $content_set_titles = $args['content_set_titles'] ?? array();
+        $evaluative_lens    = sanitize_text_field( $args['evaluative_lens'] ?? '' );
+
+        if ( $focus === 'problem' ) {
+            $prompt = $this->build_fast_track_problem_prompt(
+                $problem_title, $solution_title, $industries_str, $brain_summary,
+                $tone_profile, $assets_summary, $content_set_titles
+            );
+        } else {
+            $prompt = $this->build_fast_track_solution_prompt(
+                $problem_title, $solution_title, $industries_str, $brain_summary,
+                $tone_profile, $assets_summary, $content_set_titles, $evaluative_lens
+            );
+        }
+
+        $api_options = array(
+            'maxOutputTokens'  => 16384,
+            'responseMimeType' => 'application/json',
+            'timeout'          => 90,
+        );
+
+        $result = $this->call_gemini_api( $prompt, $api_options );
+
+        if ( is_wp_error( $result ) ) {
+            return $result;
+        }
+
+        // Clean up any markdown code fences (```json, etc.)
+        $content = trim( $result );
+        $content = preg_replace( '/^```\w*\s*/i', '', $content );
+        $content = preg_replace( '/\s*```$/', '', $content );
+
+        return array( 'content' => $content );
+    }
+
+    /**
+     * Build Fast Track PROBLEM article prompt (JourneyOS Prompt 1).
+     *
+     * @since 2.3.0
+     */
+    private function build_fast_track_problem_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $tone_profile, $assets_summary, $content_set_titles ) {
+        $titles_list = '';
+        if ( ! empty( $content_set_titles ) ) {
+            $titles_list = implode( "\n", array_map( function( $t, $i ) {
+                if ( is_array( $t ) ) {
+                    $prob = $t['problem_title'] ?? '';
+                    $sol  = $t['solution_title'] ?? '';
+                    return ( $i + 1 ) . '. Problem: ' . $prob . ' | Solution: ' . $sol;
+                }
+                return ( $i + 1 ) . '. ' . $t;
+            }, $content_set_titles, array_keys( $content_set_titles ) ) );
+        }
+
+        $prompt  = "You are an expert content strategist following the JourneyOS methodology.\n\n";
+        $prompt .= "Write a PROBLEM-AWARENESS article that helps the reader recognise and name a problem they are experiencing. ";
+        $prompt .= "This article must NOT sell anything. It exists solely to validate the reader's experience.\n\n";
+
+        $prompt .= "=== ARTICLE CONTEXT ===\n";
+        $prompt .= "Problem Title: {$problem_title}\n";
+        $prompt .= "Companion Solution Title: {$solution_title}\n";
+        if ( ! empty( $industries_str ) ) {
+            $prompt .= "Target Industries: {$industries_str}\n";
+        }
+        $prompt .= "\n";
+
+        if ( ! empty( $titles_list ) ) {
+            $prompt .= "=== LANE DISCIPLINE — Full Content Set ===\n";
+            $prompt .= "This article is ONE piece in a 10-article content set. Stay in your lane — cover ONLY the specific problem in your title. ";
+            $prompt .= "Do not drift into territory covered by the other articles listed below:\n";
+            $prompt .= $titles_list . "\n\n";
+        }
+
+        if ( ! empty( $brain_summary ) ) {
+            $prompt .= "=== SUBJECT-MATTER CONTEXT (Brain Content) ===\n{$brain_summary}\n\n";
+        }
+        if ( ! empty( $assets_summary ) ) {
+            $prompt .= "=== EXISTING ASSETS & REFERENCE MATERIAL ===\n{$assets_summary}\n\n";
+        }
+        if ( ! empty( $tone_profile ) ) {
+            $prompt .= "=== TONE & STYLE PROFILE ===\n{$tone_profile}\n\n";
+        }
+
+        $prompt .= "=== ARTICLE STRUCTURE (1,100–1,500 words total) ===\n\n";
+
+        $prompt .= "Section 1 — Opening: The Moment of Recognition (80–120 words, NO heading)\n";
+        $prompt .= "Open with a specific, recognisable moment the reader has lived through. Use sensory or situational detail — a meeting, a report, a conversation — that makes them think \"that's me.\" ";
+        $prompt .= "Do NOT open with a statistic, a question, or a broad declaration. Drop the reader into a scene.\n\n";
+
+        $prompt .= "Section 2 — \"You're Not Imagining It\" (H2, 150–200 words)\n";
+        $prompt .= "Validate the reader's suspicion that something is wrong. Normalise the experience without dramatising it. ";
+        $prompt .= "Explain why this problem is easy to miss or dismiss. Use second-person (\"you\") to speak directly.\n\n";
+
+        $prompt .= "Section 3 — \"What This Actually Looks Like\" (H2, 200–250 words, include 4–6 bullet-point symptoms)\n";
+        $prompt .= "Translate the abstract problem into concrete, day-to-day symptoms the reader can check against their own experience. ";
+        $prompt .= "Use bullets for the symptoms. Each bullet should be a specific, observable behaviour or situation, not a generic statement.\n\n";
+
+        $prompt .= "Section 4 — \"Why It's Hard to See\" (H2, 200–250 words)\n";
+        $prompt .= "Explain the structural or psychological reasons this problem persists unnoticed — normalisation, workarounds, misattribution, org-chart blind spots, etc. ";
+        $prompt .= "This section should make the reader feel understood, not lectured.\n\n";
+
+        $prompt .= "Section 5 — \"The Real Cost of Waiting\" (H2, 200–250 words)\n";
+        $prompt .= "Show what happens if the problem goes unaddressed — compounding effects, opportunity cost, team impact. ";
+        $prompt .= "Use concrete scenarios, not fear tactics. The tone is candid, not alarmist.\n\n";
+
+        $prompt .= "Section 6 — \"The First Step Is Naming It\" (H2, 150–180 words)\n";
+        $prompt .= "Reframe recognition as progress. The reader has already taken the first step by seeing the problem clearly. ";
+        $prompt .= "Leave them feeling empowered, not overwhelmed. Do NOT prescribe a solution.\n\n";
+
+        $prompt .= "Section 7 — CTA Bridge (60–90 words, NO heading)\n";
+        $prompt .= "Provide a brief, natural bridge to the companion solution article: \"{$solution_title}\". ";
+        $prompt .= "Frame it as \"when you're ready to explore what to do about this\" — never as a hard sell.\n\n";
+
+        $prompt .= "=== HARD RULES ===\n";
+        $prompt .= "1. ZERO mention of any client, vendor, product, service, or brand name.\n";
+        $prompt .= "2. ZERO solution language — do not hint at fixes, methodologies, frameworks, or approaches.\n";
+        $prompt .= "3. ZERO urgency or scarcity tactics (\"act now\", \"don't miss out\", \"before it's too late\").\n";
+        $prompt .= "4. ZERO fear-mongering — be candid about costs but never alarmist.\n";
+        $prompt .= "5. Write in second person (\"you\"). Tone: empathetic, knowledgeable peer — not salesperson.\n";
+        $prompt .= "6. NO em dashes (—). Use commas, periods, or semicolons instead.\n";
+        $prompt .= "7. BANNED WORDS: delve, navigate, leverage, synergy, holistic, robust, best-in-class, cutting-edge, game-changer, revolutionary, transformative, seamless.\n";
+        $prompt .= "8. Do NOT start any section with \"In today's…\". Do NOT use \"Furthermore\" or \"Moreover\".\n";
+        $prompt .= "9. Every claim must be grounded in the brain content or existing assets provided above. Do not invent statistics.\n\n";
+
+        $prompt .= "=== OUTPUT FORMAT ===\n";
+        $prompt .= "Return ONLY valid JSON with this exact structure (no markdown fences, no explanatory text):\n";
+        $prompt .= "{\n";
+        $prompt .= "  \"title\": \"The article headline\",\n";
+        $prompt .= "  \"meta_description\": \"SEO meta description, max 150 characters\",\n";
+        $prompt .= "  \"sections\": [\n";
+        $prompt .= "    {\n";
+        $prompt .= "      \"heading\": \"Section heading or empty string for no-heading sections\",\n";
+        $prompt .= "      \"paragraphs\": [\"paragraph 1...\", \"paragraph 2...\"],\n";
+        $prompt .= "      \"key_takeaway\": \"optional one-line takeaway or empty string\"\n";
+        $prompt .= "    }\n";
+        $prompt .= "  ],\n";
+        $prompt .= "  \"call_to_action\": \"CTA paragraph (Section 7 content)\"\n";
+        $prompt .= "}\n\n";
+        $prompt .= "CRITICAL: Return ONLY the raw JSON object. No markdown fences, no ```json blocks, no explanatory text.\n";
+
+        return $prompt;
+    }
+
+    /**
+     * Build Fast Track SOLUTION article prompt (JourneyOS Prompt 2).
+     *
+     * @since 2.3.0
+     */
+    private function build_fast_track_solution_prompt( $problem_title, $solution_title, $industries_str, $brain_summary, $tone_profile, $assets_summary, $content_set_titles, $evaluative_lens ) {
+        $titles_list = '';
+        if ( ! empty( $content_set_titles ) ) {
+            $titles_list = implode( "\n", array_map( function( $t, $i ) {
+                if ( is_array( $t ) ) {
+                    $prob = $t['problem_title'] ?? '';
+                    $sol  = $t['solution_title'] ?? '';
+                    return ( $i + 1 ) . '. Problem: ' . $prob . ' | Solution: ' . $sol;
+                }
+                return ( $i + 1 ) . '. ' . $t;
+            }, $content_set_titles, array_keys( $content_set_titles ) ) );
+        }
+
+        $prompt  = "You are an expert content strategist following the JourneyOS methodology.\n\n";
+        $prompt .= "Write a SOLUTION-EDUCATION article that helps the reader understand the landscape of approaches to the problem described in the companion article. ";
+        $prompt .= "This article must NOT sell any single approach. It exists to help the reader evaluate options intelligently.\n\n";
+
+        $prompt .= "=== ARTICLE CONTEXT ===\n";
+        $prompt .= "Solution Title: {$solution_title}\n";
+        $prompt .= "Companion Problem Title: {$problem_title}\n";
+        if ( ! empty( $industries_str ) ) {
+            $prompt .= "Target Industries: {$industries_str}\n";
+        }
+        if ( ! empty( $evaluative_lens ) ) {
+            $prompt .= "Evaluative Lens: {$evaluative_lens}\n";
+            $prompt .= "(Use this lens to frame how approaches are compared — e.g., cost-effectiveness, scalability, implementation speed, etc.)\n";
+        }
+        $prompt .= "\n";
+
+        if ( ! empty( $titles_list ) ) {
+            $prompt .= "=== LANE DISCIPLINE — Full Content Set ===\n";
+            $prompt .= "This article is ONE piece in a 10-article content set. Stay in your lane — cover ONLY the specific solution angle in your title. ";
+            $prompt .= "Do not drift into territory covered by the other articles listed below:\n";
+            $prompt .= $titles_list . "\n\n";
+        }
+
+        if ( ! empty( $brain_summary ) ) {
+            $prompt .= "=== SUBJECT-MATTER CONTEXT (Brain Content) ===\n{$brain_summary}\n\n";
+        }
+        if ( ! empty( $assets_summary ) ) {
+            $prompt .= "=== EXISTING ASSETS & REFERENCE MATERIAL ===\n{$assets_summary}\n\n";
+        }
+        if ( ! empty( $tone_profile ) ) {
+            $prompt .= "=== TONE & STYLE PROFILE ===\n{$tone_profile}\n\n";
+        }
+
+        $prompt .= "=== ARTICLE STRUCTURE (1,700–2,300 words total) ===\n\n";
+
+        $prompt .= "Section 1 — Opening: Bridging from the Problem (80–120 words, NO heading)\n";
+        $prompt .= "Briefly acknowledge the problem the reader now recognises (from the companion article \"{$problem_title}\"). ";
+        $prompt .= "Transition naturally into \"so what can actually be done about it?\" without rehashing the problem article. ";
+        $prompt .= "Tone: pragmatic, forward-looking.\n\n";
+
+        $prompt .= "Section 2 — \"Why There Isn't One Right Answer\" (H2, 150–200 words)\n";
+        $prompt .= "Set expectations: there are multiple legitimate approaches, and the best one depends on context — org size, maturity, budget, urgency, culture. ";
+        $prompt .= "This section builds trust by being honest about complexity rather than oversimplifying.\n\n";
+
+        $prompt .= "Section 3 — \"The Main Approaches\" (H2 with H3 sub-headings, 500–700 words)\n";
+        $prompt .= "Present 2–4 distinct approaches or categories of solutions. For each approach use an H3 sub-heading and cover:\n";
+        $prompt .= "  - What it is (1–2 sentences)\n";
+        $prompt .= "  - When it works best\n";
+        $prompt .= "  - Limitations or trade-offs\n";
+        $prompt .= "  - Who it's typically right for\n";
+        $prompt .= "Evaluate approaches through the evaluative lens provided above. Be balanced — do not favour any single approach.\n\n";
+
+        $prompt .= "Section 4 — \"What Good Actually Looks Like\" (H2, 200–250 words, 4–6 bulleted evaluation criteria)\n";
+        $prompt .= "Give the reader a checklist of criteria they can use to evaluate ANY approach — not tied to a specific vendor or method. ";
+        $prompt .= "Criteria should be practical and observable (e.g., \"implementation timeline under 90 days\" not \"innovative solution\").\n\n";
+
+        $prompt .= "Section 5 — \"Mistakes Organisations Make\" (H2, 250–300 words, 3–5 named mistakes)\n";
+        $prompt .= "List common mistakes as named patterns (e.g., \"The Shiny Object Trap\", \"The Committee of Infinite Delay\"). ";
+        $prompt .= "For each, explain what it looks like and why it happens. Tone: knowing, not condescending.\n\n";
+
+        $prompt .= "Section 6 — \"A Note on Timing\" (H2, 150–200 words)\n";
+        $prompt .= "Help the reader think about when to act — what signals suggest urgency vs. what can wait. ";
+        $prompt .= "Be honest: not every situation requires immediate action. Build trust through candour.\n\n";
+
+        $prompt .= "Section 7 — CTA: Offer Invitation (80–110 words, NO heading)\n";
+        $prompt .= "Offer a low-pressure next step. Frame it as \"if you'd like help thinking through which approach fits your situation\" — ";
+        $prompt .= "not as a sales pitch. The CTA should feel like a natural extension of the article, not a tacked-on ad.\n\n";
+
+        $prompt .= "=== HARD RULES ===\n";
+        $prompt .= "1. ZERO claims of superiority for any single approach, vendor, or methodology.\n";
+        $prompt .= "2. ZERO urgency or scarcity tactics (\"act now\", \"limited time\", \"don't fall behind\").\n";
+        $prompt .= "3. Balanced evaluation — every approach gets fair treatment including trade-offs.\n";
+        $prompt .= "4. Write in second person (\"you\"). Tone: knowledgeable guide, not salesperson.\n";
+        $prompt .= "5. NO em dashes (—). Use commas, periods, or semicolons instead.\n";
+        $prompt .= "6. BANNED WORDS: delve, navigate, leverage, synergy, holistic, robust, best-in-class, cutting-edge, game-changer, revolutionary, transformative, seamless.\n";
+        $prompt .= "7. Do NOT start any section with \"In today's…\". Do NOT use \"Furthermore\" or \"Moreover\".\n";
+        $prompt .= "8. Every claim must be grounded in the brain content or existing assets provided above. Do not invent statistics.\n\n";
+
+        $prompt .= "=== OUTPUT FORMAT ===\n";
+        $prompt .= "Return ONLY valid JSON with this exact structure (no markdown fences, no explanatory text):\n";
+        $prompt .= "{\n";
+        $prompt .= "  \"title\": \"The article headline\",\n";
+        $prompt .= "  \"meta_description\": \"SEO meta description, max 150 characters\",\n";
+        $prompt .= "  \"sections\": [\n";
+        $prompt .= "    {\n";
+        $prompt .= "      \"heading\": \"Section heading or empty string for no-heading sections\",\n";
+        $prompt .= "      \"paragraphs\": [\"paragraph 1...\", \"paragraph 2...\"],\n";
+        $prompt .= "      \"key_takeaway\": \"optional one-line takeaway or empty string\"\n";
+        $prompt .= "    }\n";
+        $prompt .= "  ],\n";
+        $prompt .= "  \"call_to_action\": \"CTA paragraph (Section 7 content)\"\n";
+        $prompt .= "}\n\n";
+        $prompt .= "For Section 3, use H3 sub-headings within the section. Represent each approach as a separate entry in the paragraphs array, ";
+        $prompt .= "with the approach name as a Markdown H3 (### Approach Name) at the start of the paragraph.\n\n";
+        $prompt .= "CRITICAL: Return ONLY the raw JSON object. No markdown fences, no ```json blocks, no explanatory text.\n";
+
+        return $prompt;
+    }
+
 }

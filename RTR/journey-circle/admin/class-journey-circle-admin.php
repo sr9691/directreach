@@ -398,6 +398,7 @@ class Journey_Circle_Admin {
             '-step10-link'      => 'step10-link-assets.js',
             '-step11-complete'  => 'step11-complete.js',
             '-ai-title'         => 'ai-title-manager.js',
+            '-fast-track'       => 'fast-track-manager.js',
             '-asset-creator'    => 'asset-creator.js',
             '-completion'       => 'journey-completion.js',
             '-client-extension' => 'client-manager-journey-extension.js',

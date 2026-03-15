@@ -713,6 +713,10 @@ if (!$client) {
                 <?php esc_html_e('Step', 'directreach-campaign-builder'); ?> 
                 <span class="jc-current-step">1</span> / 11
             </div>
+            <button type="button" class="btn btn-warning jc-fast-track-btn" style="display:none;" title="Auto-generate all titles and articles without manual selection">
+                <i class="fas fa-bolt"></i>
+                <?php esc_html_e('Fast Track', 'directreach-campaign-builder'); ?>
+            </button>
             <button type="button" class="btn btn-primary jc-next-btn">
                 <?php esc_html_e('Next', 'directreach-campaign-builder'); ?>
                 <i class="fas fa-arrow-right"></i>
