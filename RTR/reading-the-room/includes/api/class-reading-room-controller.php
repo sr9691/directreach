@@ -1126,6 +1126,23 @@ final class Reading_Room_Controller extends WP_REST_Controller
 
 
     /**
+     * Ensure contact_edited column exists in rtr_prospects table.
+     */
+    private function ensure_contact_edited_column() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'rtr_prospects';
+        $col_exists = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'contact_edited'",
+                DB_NAME, $table
+            )
+        );
+        if (empty($col_exists)) {
+            $wpdb->query("ALTER TABLE {$table} ADD COLUMN contact_edited TINYINT(1) DEFAULT 0 AFTER contact_email");
+        }
+    }
+
+    /**
      * Update prospect contact information.
      *
      * @param WP_REST_Request $request
@@ -1134,7 +1151,7 @@ final class Reading_Room_Controller extends WP_REST_Controller
     public function update_prospect_contact(WP_REST_Request $request)
     {
         global $wpdb;
-        
+
         $visitor_id = (int) $request->get_param('id');
         $contact_name = sanitize_text_field($request->get_param('contact_name'));
         $contact_email = sanitize_email($request->get_param('contact_email'));
@@ -1174,6 +1191,7 @@ final class Reading_Room_Controller extends WP_REST_Controller
         );
 
         // Update rtr_prospects table
+        $this->ensure_contact_edited_column();
         $prospect_update = [
             'contact_name' => $contact_name,
             'contact_edited' => 1,
@@ -1588,6 +1606,9 @@ final class Reading_Room_Controller extends WP_REST_Controller
             $format,
             ['%d']
         );
+
+        // Ensure contact_edited column exists (may not if migration hasn't run yet)
+        $this->ensure_contact_edited_column();
 
         // Update rtr_prospects table (only has contact_name, contact_email, company_name)
         $prospect_update = [
