@@ -5,7 +5,11 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(grep -E \"\\\\.\\(js|ts|php\\)$\")"
+      "Bash(grep -E \"\\\\.\\(js|ts|php\\)$\")",
+      "Bash(ls \"C:\\\\Users\\\\SR\\\\OneDrive\\\\Downloads\\\\JourneyOS_Article_Prompts\"*)",
+      "Read(//c/Users/SR/OneDrive/**)",
+      "Bash(php -l \"RTR/journey-circle/includes/api/class-ai-content-controller.php\")",
+      "Bash(php -l \"RTR/journey-circle/includes/journey-circle/class-ai-content-generator.php\")"
     ]
   }
 }
