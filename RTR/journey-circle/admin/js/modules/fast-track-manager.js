@@ -571,9 +571,9 @@
                 contentAssets[item.problemId][item.focus].types = {};
             }
 
-            contentAssets[item.problemId][item.focus].types.article_long = {
+            contentAssets[item.problemId][item.focus].types.article = {
                 content: content,
-                status: 'draft'
+                status: 'approved'
             };
         }
 
