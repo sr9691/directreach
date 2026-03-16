@@ -268,33 +268,39 @@
     color: #ef4444;
 }
 
-.rtr-bounce-actions {
-    display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
+/* Bounce Toggle Button */
+.rtr-bounce-toggle-btn {
+    background: #f3f4f6;
+    color: #9ca3af;
+    border: none;
 }
 
-.rtr-bounce-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    background: transparent;
+.rtr-bounce-toggle-btn:hover {
+    background: #fee2e2;
     color: #ef4444;
-    border: 1px solid #ef4444;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 11px;
-    transition: all 0.2s ease;
 }
 
-.rtr-bounce-btn:hover {
-    background: #ef4444;
-    color: white;
+.rtr-bounce-toggle-btn.rtr-bounce-toggle-active {
+    background: #fee2e2;
+    color: #ef4444;
 }
 
-.rtr-bounce-btn i {
-    font-size: 10px;
+.rtr-bounce-icon {
+    width: 1em;
+    height: 1em;
+    font-size: 13px;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+.rtr-bounce-icon .fa-envelope {
+    font-size: 1em;
+}
+
+.rtr-bounce-icon .rtr-bounce-times {
+    font-size: 0.65em;
+    transform: translate(30%, -30%);
+    font-weight: 900;
 }
 
 .rtr-email-disabled {

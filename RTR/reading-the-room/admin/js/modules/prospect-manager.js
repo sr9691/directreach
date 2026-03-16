@@ -150,15 +150,11 @@ export default class ProspectManager {
                 this.handleBatchGenerate(room, batchBtn);
             }            
 
-            // Bounce button
-            const bounceBtn = e.target.closest('.rtr-bounce-btn');
-            if (bounceBtn) {
+            // Bounce toggle button
+            const bounceToggleBtn = e.target.closest('.rtr-bounce-toggle-btn');
+            if (bounceToggleBtn) {
                 e.preventDefault();
-                const prospectId = bounceBtn.dataset.prospectId;
-                const visitorId = bounceBtn.dataset.visitorId;
-                const room = bounceBtn.dataset.room;
-                const emailNumber = parseInt(bounceBtn.dataset.emailNumber);
-                this.handleMarkBounced(prospectId, visitorId, room, emailNumber, bounceBtn);
+                this.handleBounceToggle(bounceToggleBtn);
             }
 
             // Event Delegation - Lead Score Click
@@ -664,33 +660,6 @@ export default class ProspectManager {
 
         rightSection.appendChild(emailSequence);
 
-        // Bounce buttons for sent emails
-        const hasSentEmails = Object.values(emailStates).some(
-            e => e?.state === 'sent'
-        );
-        if (hasSentEmails) {
-            const bounceContainer = document.createElement('div');
-            bounceContainer.className = 'rtr-bounce-actions';
-
-            for (let i = 1; i <= emailCount; i++) {
-                const emailKey = `email_${i}`;
-                const emailData = emailStates[emailKey] || {};
-                if (emailData.state === 'sent') {
-                    const bounceBtn = document.createElement('button');
-                    bounceBtn.className = 'rtr-action-btn rtr-bounce-btn';
-                    bounceBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Bounced';
-                    bounceBtn.title = `Mark email ${i} as bounced`;
-                    bounceBtn.dataset.prospectId = prospect.id;
-                    bounceBtn.dataset.visitorId = prospect.visitor_id || prospect.id;
-                    bounceBtn.dataset.room = room;
-                    bounceBtn.dataset.emailNumber = i;
-                    bounceContainer.appendChild(bounceBtn);
-                }
-            }
-
-            rightSection.appendChild(bounceContainer);
-        }
-
         // Actions
         const actionsContainer = document.createElement('div');
         actionsContainer.className = 'rtr-prospect-actions';
@@ -704,6 +673,17 @@ export default class ProspectManager {
         journeyBtn.dataset.visitorId = prospect.visitor_id || prospect.id;
         journeyBtn.dataset.room = room;
         actionsContainer.appendChild(journeyBtn);
+
+        // Bounce Toggle Button
+        const isBounced = prospect.email_bounced == 1;
+        const bounceBtn = document.createElement('button');
+        bounceBtn.className = `rtr-action-btn rtr-bounce-toggle-btn${isBounced ? ' rtr-bounce-toggle-active' : ''}`;
+        bounceBtn.innerHTML = '<span class="fa-stack rtr-bounce-icon"><i class="fas fa-envelope fa-stack-1x"></i><i class="fas fa-times fa-stack-1x rtr-bounce-times"></i></span>';
+        bounceBtn.title = isBounced ? 'Marked as bounced — click to clear' : 'Mark as bounced';
+        bounceBtn.dataset.prospectId = prospect.id;
+        bounceBtn.dataset.visitorId = prospect.visitor_id || prospect.id;
+        bounceBtn.dataset.room = room;
+        actionsContainer.appendChild(bounceBtn);
 
         // Info Button
         const infoBtn = document.createElement('button');
@@ -1622,64 +1602,30 @@ export default class ProspectManager {
     }
 
     /**
-     * Mark an email as bounced via API, then refresh the prospect card.
+     * Toggle bounced state on prospect card.
+     * Pure UI toggle — no API call. Disables email generation when active.
+     * Resets automatically if contact info is updated via the edit contact modal.
      */
-    async handleMarkBounced(prospectId, visitorId, room, emailNumber, button) {
-        if (button.disabled) return;
+    handleBounceToggle(button) {
+        const isBounced = button.classList.contains('rtr-bounce-toggle-active');
+        const prospectId = button.dataset.prospectId;
 
-        // Confirm with user
-        if (this.uiManager) {
-            const confirmed = await this.uiManager.confirmAction(
-                'Mark as Bounced',
-                `Mark email ${emailNumber} as bounced? This will enable the edit button so you can update the contact email.`,
-                'Mark Bounced',
-                'Cancel'
-            );
-            if (!confirmed) return;
+        if (isBounced) {
+            // Clear bounced state
+            button.classList.remove('rtr-bounce-toggle-active');
+            button.title = 'Mark as bounced';
+        } else {
+            // Set bounced state
+            button.classList.add('rtr-bounce-toggle-active');
+            button.title = 'Marked as bounced — click to clear';
         }
 
-        button.disabled = true;
-        const originalHTML = button.innerHTML;
-        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-
-        try {
-            const response = await fetch(
-                `${this.apiUrl}/prospects/${prospectId}/mark-bounced`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-WP-Nonce': this.nonce
-                    },
-                    body: JSON.stringify({
-                        email_number: emailNumber,
-                        room_type: room
-                    })
-                }
-            );
-
-            const data = await response.json();
-
-            if (!response.ok || !data.success) {
-                throw new Error(data.message || 'Failed to mark as bounced');
-            }
-
-            // Update the email button to bounced state
-            this.updateButtonState(visitorId, emailNumber, 'bounced');
-
-            // Re-render this prospect row to show the edit button and hide the bounce button
-            this.loadRoomProspects(room);
-
-            if (this.uiManager) {
-                this.uiManager.notify('Email marked as bounced. Use the edit button to update the contact email.', 'warning');
-            }
-        } catch (error) {
-            console.error('Failed to mark email as bounced:', error);
-            button.disabled = false;
-            button.innerHTML = originalHTML;
-
-            if (this.uiManager) {
-                this.uiManager.notify(`Failed to mark as bounced: ${error.message}`, 'error');
+        // Disable/enable the JourneyOS generate button on the same card
+        const actionsContainer = button.closest('.rtr-prospect-actions');
+        if (actionsContainer) {
+            const journeyBtn = actionsContainer.querySelector('.rtr-journeyos-btn');
+            if (journeyBtn) {
+                journeyBtn.disabled = !isBounced ? true : false;
             }
         }
     }
