@@ -182,6 +182,7 @@ if (!is_array($clients)) {
                         <option value="7">Last 7 Days</option>
                         <option value="30" selected>Last 30 Days</option>
                         <option value="90">Last 90 Days</option>
+                        <option value="all" disabled>All Time (select a client)</option>
                     </select>
                 </div>
 

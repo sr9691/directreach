@@ -234,9 +234,9 @@ export default class ProspectManager {
 
             const dateFilter = document.getElementById('date-filter');
 
-            if (dateFilter && dateFilter.value) {
+            if (dateFilter && dateFilter.value && dateFilter.value !== 'all') {
                 url.searchParams.append('days', dateFilter.value);
-            }            
+            }
 
             // Add sort parameters
             const sort = this.currentSort[room];

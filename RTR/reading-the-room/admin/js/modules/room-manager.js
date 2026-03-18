@@ -49,6 +49,7 @@ export default class RoomManager {
         
         if (clientSelect) {
             clientSelect.addEventListener('change', () => {
+                this.toggleAllTimeOption();
                 document.dispatchEvent(new CustomEvent('rtr:filterChanged'));
             });
         }
@@ -59,20 +60,41 @@ export default class RoomManager {
             });
         }
 
+        // Set initial state for All Time option
+        this.toggleAllTimeOption();
+
+    }
+
+    toggleAllTimeOption() {
+        const clientSelect = document.getElementById('client-select');
+        const dateFilter = document.getElementById('date-filter');
+        if (!dateFilter) return;
+
+        const allTimeOption = dateFilter.querySelector('option[value="all"]');
+        if (!allTimeOption) return;
+
+        const clientSelected = clientSelect && clientSelect.value;
+        allTimeOption.disabled = !clientSelected;
+        allTimeOption.textContent = clientSelected ? 'All Time' : 'All Time (select a client)';
+
+        // If "All Time" was selected but client was deselected, reset to 30 days
+        if (!clientSelected && dateFilter.value === 'all') {
+            dateFilter.value = '30';
+        }
     }
 
     async loadRoomCounts() {
         try {
             const clientFilter = document.getElementById('client-select');
-            
+
             const url = new URL(`${this.apiUrl}/analytics/room-counts`, window.location.origin);
-            
+
             if (clientFilter && clientFilter.value) {
                 url.searchParams.append('client_id', clientFilter.value);
             }
 
             const dateFilter = document.getElementById('date-filter');
-            if (dateFilter && dateFilter.value) {
+            if (dateFilter && dateFilter.value && dateFilter.value !== 'all') {
                 url.searchParams.append('days', dateFilter.value);
             }
 
