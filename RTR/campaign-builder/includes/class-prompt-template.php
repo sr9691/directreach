@@ -221,9 +221,15 @@ public function validate() {
      * @return array Formatted visitor info
      */
     public function format_visitor_info( $prospect, $visitor_data = array() ) {
+        // Extract first name from contact_name
+        $contact_name = $prospect['contact_name'] ?? '';
+        $name_parts = explode( ' ', trim( $contact_name ), 2 );
+        $first_name = $name_parts[0];
+
         $visitor_info = array(
             'company_name' => $prospect['company_name'] ?? '',
-            'contact_name' => $prospect['contact_name'] ?? '',
+            'contact_name' => $contact_name,
+            'first_name' => $first_name,
             'contact_email' => $prospect['contact_email'] ?? '',
             'current_room' => $prospect['current_room'] ?? 'problem',
             'lead_score' => intval( $prospect['lead_score'] ?? 0 ),

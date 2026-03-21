@@ -1019,9 +1019,14 @@ class AI_Settings_Controller extends \WP_REST_Controller {
      * @return array
      */
     private function format_visitor_context($prospect) {
+        // Extract first name from contact_name
+        $name_parts = explode(' ', trim($prospect['contact_name'] ?? ''), 2);
+        $first_name = $name_parts[0];
+
         $context = [
             'company_name' => $prospect['company_name'],
             'contact_name' => $prospect['contact_name'],
+            'first_name' => $first_name,
             'job_title' => $prospect['job_title'],
             'current_room' => $prospect['current_room'],
             'lead_score' => $prospect['lead_score'],
@@ -1156,6 +1161,9 @@ class AI_Settings_Controller extends \WP_REST_Controller {
         if (!empty($info['contact_name'])) {
             $lines[] = "Contact: {$info['contact_name']}";
         }
+        if (!empty($info['first_name'])) {
+            $lines[] = "First Name: {$info['first_name']}";
+        }
         if (!empty($info['job_title'])) {
             $lines[] = "Title: {$info['job_title']}";
         }
@@ -1225,6 +1233,8 @@ class AI_Settings_Controller extends \WP_REST_Controller {
     - body_html must use proper HTML tags (<p>, <strong>, <em>, etc.)
     - body_text must be plain text only, no HTML
     - subject should be compelling and personalized
+    - The email greeting MUST use the prospect's First Name from the visitor information (e.g., "Hi Sarah," not a generic name)
+    - Only introduce yourself (the salesperson) in the FIRST email to a prospect (Email Sequence Position = 1). For subsequent emails (position 2+), do NOT re-introduce yourself — the prospect already knows who you are
     - DO NOT include any text outside the JSON structure
     - DO NOT use markdown code fences (```)
     INSTRUCTIONS;

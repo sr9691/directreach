@@ -752,6 +752,10 @@ class CPD_AI_Email_Generator {
             $lines[] = "Contact: {$visitor_info['contact_name']}";
         }
 
+        if ( ! empty( $visitor_info['first_name'] ) ) {
+            $lines[] = "First Name: {$visitor_info['first_name']}";
+        }
+
         if ( ! empty( $visitor_info['job_title'] ) ) {
             $lines[] = "Title: {$visitor_info['job_title']}";
         }
@@ -840,6 +844,8 @@ CRITICAL REQUIREMENTS:
 - body_html must use proper HTML tags (<p>, <strong>, <em>, etc.)
 - body_text must be plain text only, no HTML
 - subject should be compelling and personalized
+- The email greeting MUST use the prospect's First Name from the visitor information (e.g., "Hi Sarah," not a generic name)
+- Only introduce yourself (the salesperson) in the FIRST email to a prospect (Email Sequence Position = 1). For subsequent emails (position 2+), do NOT re-introduce yourself — the prospect already knows who you are
 - DO NOT include any text outside the JSON structure
 - DO NOT use markdown code fences (```)
 INSTRUCTIONS;
@@ -982,8 +988,10 @@ INSTRUCTIONS;
         }
 
         // Build simple email from template
+        $name_parts = explode( ' ', trim( $prospect['contact_name'] ?? '' ), 2 );
+        $first_name = $name_parts[0];
         $subject = "Follow up: {$prospect['company_name']}";
-        $body_html = "<p>Hi {$prospect['contact_name']},</p>";
+        $body_html = "<p>Hi {$first_name},</p>";
         $body_html .= "<p>I noticed you've been exploring our {$room_type} solutions.</p>";
         
         if ( $selected_url ) {

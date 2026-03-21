@@ -794,6 +794,7 @@ class Templates_Controller extends WP_REST_Controller {
             'visitor_info' => array(
                 'company_name' => 'Acme Corp',
                 'contact_name' => 'John Smith',
+                'first_name' => 'John',
                 'job_title' => 'Marketing Director',
                 'current_room' => 'problem',
                 'lead_score' => 75,
