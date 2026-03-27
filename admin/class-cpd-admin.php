@@ -626,9 +626,9 @@ class CPD_Admin {
         $webpage_url = esc_url_raw( $_POST['webpage_url'] );
         $crm_feed_email = sanitize_text_field( $_POST['crm_feed_email'] );
         $subscription_tier = sanitize_text_field($_POST['subscription_tier']);
-        $rtr_enabled = isset($_POST['rtr_enabled']) ? 1 : 0;
+        $rtr_enabled = !empty($_POST['rtr_enabled']) && $_POST['rtr_enabled'] !== '0' ? 1 : 0;
 
-        
+
         // AI Intelligence fields
         $ai_intelligence_enabled = isset( $_POST['ai_intelligence_enabled'] ) ? 1 : 0;
         // Properly handle WordPress slashing for JSON content
@@ -780,9 +780,9 @@ class CPD_Admin {
 
         // NEW: Premium fields
         $subscription_tier = sanitize_text_field($_POST['subscription_tier']);
-        $rtr_enabled = isset($_POST['rtr_enabled']) ? 1 : 0;
-        
-       
+        $rtr_enabled = !empty($_POST['rtr_enabled']) && $_POST['rtr_enabled'] !== '0' ? 1 : 0;
+
+
         // Validate subscription tier
         if (!in_array($subscription_tier, array('basic', 'premium'))) {
             $subscription_tier = 'basic';
